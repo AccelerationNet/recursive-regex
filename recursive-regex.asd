@@ -1,15 +1,37 @@
-# recursive-regex
+;; -*- lisp -*-
 
-This library integrates with CL-PPCRE to makes named regex groups,
-dispatch to custom matcher functions (which can recursively call
-another regex in the) context of the original regex.  It can then
-return a (parse) tree of results.
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (unless (find-package :recursive-regex.system)
+    (defpackage :recursive-regex.system
+	(:use :common-lisp :asdf))))
 
-## Simple Example
+(in-package recursive-regex.system)
 
+(defsystem :recursive-regex
+  :description "Recursive regular expression parsing engine"
+  :licence "BSD"
+  :version "0.1"
+  :components ((:file "rec-regex"))
+  :depends-on (:iterate :alexandria :cl-interpol :cl-ppcre
+			:anaphora
+			:symbol-munger))
 
-```
+(defsystem :recursive-regex-test
+  :description "Tests for a recursive regular expressions"
+  :licence "BSD"
+  :version "0.1"
+  :components ((:module :tests
+			:serial t
+			:components ((:file "rec-regex"))))
+  :depends-on (:recursive-regex :lisp-unit))
+
+(defmethod asdf:perform ((o asdf:test-op) (c (eql (find-system :recursive-regex))))
+  (asdf:oos 'asdf:load-op :recursive-regex-test)
+  (let ((*package* (find-package :recursive-regex-test)))
+    (eval (read-from-string "(run-tests)"))))
+
 ;; Copyright (c) 2011 Russ Tyndall , Acceleration.net http://www.acceleration.net
+;; Copyright (c) 2002-2006, Edward Marco Baringer
 ;; All rights reserved.
 ;;
 ;; Redistribution and use in source and binary forms, with or without
@@ -38,4 +60,3 @@ return a (parse) tree of results.
 ;; THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 ;; (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 ;; OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-```

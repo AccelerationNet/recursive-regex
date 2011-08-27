@@ -1,4 +1,10 @@
-(in-package :adwutils)
+(cl:defpackage :rec-regex
+  (:use :cl :cl-user :iterate :anaphora)
+  (:export :result-node :start :end :full-match :groups :kids
+	   :treeify-regex-results
+	   :regex-recursive-groups))
+
+(in-package :rec-regex)
 (cl-interpol:enable-interpol-syntax)
 (declaim (optimize (debug 3)))
 
@@ -7,8 +13,19 @@
 
 (defvar *groups* nil)
 
-(defclass result-node ()
-  #.(slot-defs '(name start end full-match groups kids)))
+(defun make-displaced-array (array &optional (start 0) (end (length array)))
+  (make-array (- end start)
+	      :element-type (array-element-type array)
+	      :displaced-to array
+	      :displaced-index-offset start))
+
+(defclass result-node () 
+  ((name :accessor name :initarg :name :initform nil)
+   (start :accessor start :initarg :start :initform nil)
+   (end :accessor end :initarg :end :initform nil)
+   (full-match :accessor full-match :initarg :full-match :initform nil)
+   (groups :accessor groups :initarg :groups :initform nil)
+   (kids :accessor kids :initarg :kids :initform nil)))
 
 (defun result-node (name start end full-match &optional groups kids)
   (make-instance 'result-node :name name :start start :end end
@@ -23,10 +40,11 @@
             (full-match o))
     ))
 
-(defun %collect-groups-to-tree (name scanner target &optional (start 0) (end (length target))
-                                     &aux (existing-nodes *groups*) rtn)
-  ;; TODO: Bind these to the appropriate length
+(defun %collect-groups-to-tree (name scanner target
+				&optional (start 0) (end (length target))
+				&aux (existing-nodes *groups*) rtn)
   (let* ((*groups* nil)
+	 ;; TODO: Bind these to the appropriate length
          (CL-PPCRE::*REG-STARTS* #(nil nil nil nil nil nil))
          (CL-PPCRE::*REG-ENDS* #(nil nil nil nil nil nil))
          (results (setf
@@ -62,8 +80,7 @@
       (when (or (null last-start)
                 (>= last-start end))
         (collect n at start into res))
-      (finally (return res)))
-    ))
+      (finally (return res)))))
 
 (defun treeify-regex-results (tree)
   (labels ((help (tree)
@@ -73,14 +90,15 @@
                 (return (list* (name tree) (full-match tree) ns))))))
     (help tree)))
 
-(defun regex-recursive-groups (regex filters target)
+(defun regex-recursive-groups (regex target
+			       &optional (dispatchers *dispatchers*))
   (let ((*groups* nil)
-        (scanner (create-scanner-with-filters regex filters))
+	(*dispatchers* dispatchers)
+        (scanner (create-recursive-scanner regex dispatchers))
         res)
     (%collect-groups-to-tree :root scanner target)
     (setf res (pop *groups*))
-    (print (treeify-regex-results res))
-    res))
+    (values res (treeify-regex-results res))))
 
 (defvar *body-regex* nil )
 (defvar *uncompiled-br*  nil)
@@ -92,7 +110,7 @@
    such as (start (other () some) end)"
   (lambda (body-regex &aux (br (devoid body-regex)))
     (setf body-regex (awhen (devoid body-regex)
-                       (create-scanner-with-filters
+                       (create-recursive-scanner
                         `(:SEQUENCE :START-ANCHOR ,it :END-ANCHOR))))
     (lambda (pos)
       (let ((*body-regex* body-regex)
@@ -123,7 +141,8 @@
              (decf cnt)
              (when (zerop cnt) ;; found our last matching char
                (let* ((match-end (+ 1 pos))
-                     (match (make-displaced-array cl-ppcre::*string* start match-end)))
+                     (match (make-displaced-array
+			     cl-ppcre::*string* start match-end)))
                  (cond
                    ((null body-regex)
                     (push (result-node name start pos match) *groups*)
@@ -142,8 +161,8 @@
   "Handles matching by delegating to another named regular expression"
   (lambda (body-regex &aux (br (devoid body-regex)))
     (setf body-regex (awhen (devoid body-regex)
-                       (create-scanner-with-filters it)))
-    (setf named-regex (create-scanner-with-filters named-regex))
+                       (create-recursive-scanner it)))
+    (setf named-regex (create-recursive-scanner named-regex))
     (setf name (symbol-munger:english->keyword name))
     (lambda (pos)
       (let ((*body-regex* body-regex)
@@ -160,14 +179,13 @@
   (lambda (body-regex &aux (br (devoid body-regex)))
     ;; handle default body regex (if one is not provided)
     (setf body-regex (awhen (devoid body-regex)
-                       (create-scanner-with-filters it)))
+                       (create-recursive-scanner it)))
     (lambda (pos)
-      (when-bind body (or *body-regex* body-regex)
+      (awhen (or *body-regex* body-regex)
         (let* ((*uncompiled-br* (or *uncompiled-br* br))
                (results
-                 (%collect-groups-to-tree
-                  :body
-                  body cl-ppcre::*string* pos cl-ppcre::*end-pos*))
+		(%collect-groups-to-tree
+		 :body it cl-ppcre::*string* pos cl-ppcre::*end-pos*))
                (end (second results)))
           end)))))
 
@@ -185,10 +203,9 @@
     ("csv-file"  . ,(make-named-regex-matcher "csv-file"
                       #?r"(?<csv-row>)*"))))
 
-(defvar *dispatchers* nil)
-(setf *dispatchers* (default-dispatch-table))
+(defparameter *dispatchers* (default-dispatch-table))
 
-(defun create-scanner-with-filters
+(defun create-recursive-scanner
     (regex &optional (function-table *dispatchers*)
            &aux (cl-ppcre:*allow-named-registers* T))
   "Allows named registers to refer to functions that should be in
@@ -196,7 +213,7 @@
   (typecase regex
     (function regex)
     (string
-     (create-scanner-with-filters (cl-ppcre:parse-string regex)
+     (create-recursive-scanner (cl-ppcre:parse-string regex)
       function-table))
     (list regex
      (let* ((p-tree regex))
@@ -221,39 +238,4 @@
          ;; then compile it
          (cl-ppcre:create-scanner (mutate-tree p-tree)))))
     ))
-
-(defparameter *example-function-phrase*
-  "some times I like to \"function (calling all coppers (), another param (), test)\" just to see what happens")
-(defparameter *test-csv* #?|this,is,a,"test
-of
-multiline", data
-row2,of,the,"test
-of
-multiline", data|)
-
-(defun run-examples ( &aux (table *dispatchers*))
-  "Just runs some examples expected results:
-
-   ((\"function (calling all coppers (), another param (), test)\"
-     #(\"(calling all coppers (), another param (), test)\"))
-    (\"function (calling all coppers (), another param (), test)\"
-     #(\"(calling all coppers (), another param (), test)\"))
-    (NIL))
-  "
-  (iter
-    (for c upfrom 1)
-    (for i in
-         (list
-          ;(regex-recursive-groups #?r"function\s*(?<parens>)")
-          ;(regex-recursive-groups #?r"function\s*(?<parens>(([^,]+,)*[^,]+))")
-          ;(regex-recursive-groups #?r"function\s*(?<parens>not-matching-at-all)")
-          (regex-recursive-groups
-           #?r"function\s*(?<parens>(?<comma-list>))" table *example-function-phrase*)
-          ;(regex-recursive-groups #?r"(?<dbl-quotes>)" table "this string has a \"quo\\\"ted\" sub phrase")
-          ;(regex-recursive-groups #?r"(?<csv-row>)" table *test-csv*)
-          ;(regex-recursive-groups #?r"^(?<csv-row>)*$" table *test-csv*)
-          (regex-recursive-groups #?r"(?<csv-file>)" table *test-csv*)
-          ))
-    (print c)
-    (print i)))
 
