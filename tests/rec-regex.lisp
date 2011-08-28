@@ -23,7 +23,7 @@ multiline", data|)
     (assert-true res)))
 
 (define-test parens-with-body
-  (let ((res (regex-recursive-groups
+  (let* ((res (regex-recursive-groups
 	      #?r"function\s*(?<parens>(([^,]+,)*[^,]+))"
 	      *parens-test-phrase*)))
     (assert-true res)))
@@ -43,7 +43,9 @@ multiline", data|)
 (define-test double-quotes
   (let* ((res (regex-recursive-groups
 	       #?r"(?<double-quotes>)"
-	       "this string has a \"quo\\\"ted\" sub phrase" )))
+	       "this string has a \"quo\\\"ted\" sub phrase" ))
+	 (quote-body (full-match (first (kids res)))))
+    (assert-equal "\"quo\\\"ted\"" quote-body)
     (assert-true res)))
 
 (define-test double-quotes-escaped-escape
@@ -56,8 +58,17 @@ multiline", data|)
     (assert-true res)))
 
 (define-test csv-file
-  (let ((res (regex-recursive-groups
-	      #?r"(?<csv-file>)"
-	      *test-csv*)))
+  (let* ((res (regex-recursive-groups
+	       #?r"(?<csv-file>)"
+	       *test-csv*))
+	 (rows (kids (first (kids res))))
+	 (commas (first (kids (first rows))))
+	 (row1 (iter (for k in (kids commas))
+		     (collect (full-match k)))))
+    
+    (assert-eql 3 (length rows) "extra empty row...")
+    (assert-equalp '("this" "is" "a" "\"test
+of
+multiline\"" "data") row1)
     (assert-true res)))
 
