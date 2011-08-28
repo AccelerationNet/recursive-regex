@@ -1,7 +1,7 @@
 (cl:defpackage :rec-regex
   (:use :cl :cl-user :iterate :anaphora)
   (:export :result-node :start :end :full-match :groups :kids
-	   :treeify-regex-results
+	   :treeify-regex-results :create-recursive-scanner
 	   :regex-recursive-groups))
 
 (in-package :rec-regex)
@@ -109,16 +109,18 @@
    matched characters such as (start (other () some) end)"
   (lambda (body-regex &aux (br (devoid body-regex)))
     (setf body-regex (awhen (devoid body-regex)
-		       ;; TODO: I think it should be this but stack-overflow:
-		       `(:NAMED-REGISTER "body"
-			  ;; dispatch to body to capture it
-			  (:SEQUENCE :START-ANCHOR ,it :END-ANCHOR))
                        (create-recursive-scanner
-			`(:SEQUENCE :START-ANCHOR ,it :END-ANCHOR)
-			)))
+			`(:NAMED-REGISTER
+			  "body"
+			  ;; dispatch to body to capture it
+			  (:SEQUENCE :START-ANCHOR ,br :END-ANCHOR)))))
     (lambda (pos)
-      (let ((*body-regex* body-regex)
-            (*uncompiled-br* br)
+      (let ((*body-regex* nil) 
+	      ;; because we compiled it into a default body above
+            (*uncompiled-br* `(:NAMED-REGISTER
+			       "body"
+			       ;; dispatch to body to capture it
+			       (:SEQUENCE :START-ANCHOR ,br :END-ANCHOR)))
             (name (symbol-munger:english->keyword #?"matched ${name}"))
             fail
             (start pos)
@@ -153,9 +155,13 @@
                      (match (make-displaced-array
 			     cl-ppcre::*string* start match-end)))
                  (acond
-                   ((null body-regex)
+		   ;; dont have a body to match so, just push our match
+                   ((null body-regex) 
                     (push (result-node name start pos match) *groups*)
                     (return match-end))
+		   ;; we have a body to match, and it matched so set
+		   ;; the information on our node and assume kids are
+		   ;; in place
                    ((%collect-groups-to-tree
                      name body-regex cl-ppcre::*string* (+ 1 start) pos)
                     (let ((me (first *groups*)))
@@ -163,6 +169,7 @@
 			    (end me) match-end
 			    (full-match me) match))
                     (return match-end))
+		   ;; our body didnt match so we must fail
                    (T fail))))))
           (incf pos)
         )))))
@@ -243,7 +250,7 @@
                     (list
                      (aif (and (eql :named-register (first tree))
                                (dispatcher? (second tree)))
-                          `(:named-register (second tree)
+                          `(:named-register ,(second tree)
                             (:filter ,(funcall it (third tree))))
                           (iter (for item in tree)
                             (collect (mutate-tree item))))))))
