@@ -36,29 +36,29 @@ with.
 
 ## Pre-Defined Dispatchers
 
-  body: 
-    can be used in a definition to designate where the body 
-    matcher should start matching. You can also provide a default
-    body by specifying a regex inside the body in a definition.
+    body: 
+        can be used in a definition to designate where the body 
+        matcher should start matching. You can also provide a default
+        body by specifying a regex inside the body in a definition.
 
-  parens, brackets, braces, angels:
-    these all match a single matched pair 
-    eg, for parens:
-      not in the match (in (the) match) not in the match
+    parens, brackets, braces, angels:
+        these all match a single matched pair 
+        eg, for parens:
+        not in the match (in (the) match) not in the match
 
-  single-quotes, double-quotes:
-    single-quotes and double-quotes respect a single backslash as escape
+    single-quotes, double-quotes:
+        single-quotes and double-quotes respect a single backslash as escape
 
-  comma-list: 
-    [\t ]*(?:(?<body>[^,]*)[\t ]*,)*[\t ]*(?<body>[^,]*)[\t ]*
-    the comma-list definition is (?<body>) separated by commas with
-    arbitrary whitespace surrounding them. The default value of the
-    body regex os [^,]*
+    comma-list: 
+        [\t ]*(?:(?<body>[^,]*)[\t ]*,)*[\t ]*(?<body>[^,]*)[\t ]*
+        the comma-list definition is (?<body>) separated by commas with
+        arbitrary whitespace surrounding them. The default value of the
+        body regex os [^,]*
 
-  csv-row:
-    (?<comma-list>((?<double-quotes>)|[^\n,]*))(?:\n|$)
-    calls the comma-list matcher passing in the body
-    double-quotes-matcher or not new line or comma repeating
+    csv-row:
+        (?<comma-list>((?<double-quotes>)|[^\n,]*))(?:\n|$)
+        calls the comma-list matcher passing in the body
+        double-quotes-matcher or not new line or comma repeating
 
 ```
 ;; Copyright (c) 2011 Russ Tyndall, 
