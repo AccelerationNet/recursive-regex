@@ -41,9 +41,18 @@ multiline", data|)
     (assert-true res)))
 
 (define-test double-quotes
-  (let ((res (regex-recursive-groups
-	      #?r"(?<dbl-quotes>)"
-	      "this string has a \"quo\\\"ted\" sub phrase" )))
+  (let* ((res (regex-recursive-groups
+	       #?r"(?<double-quotes>)"
+	       "this string has a \"quo\\\"ted\" sub phrase" )))
+    (assert-true res)))
+
+(define-test double-quotes-escaped-escape
+  (let* ((res (regex-recursive-groups
+	      #?r"(?<double-quotes>)"
+	      "this string has a \"quo\\\\\"ted\" sub phrase" ))
+	(quote-body (full-match (first (kids res)))))
+    (assert-true (string-equal "\"quo\\\\\"" quote-body)
+		  quote-body "shouldn't count escaped escapes")
     (assert-true res)))
 
 (define-test csv-file

@@ -12,9 +12,8 @@
   :licence "BSD"
   :version "0.1"
   :components ((:file "rec-regex"))
-  :depends-on (:iterate :alexandria :cl-interpol :cl-ppcre
-			:anaphora
-			:symbol-munger))
+  :depends-on (:iterate :anaphora :cl-interpol :cl-ppcre
+			:alexandria :symbol-munger))
 
 (defsystem :recursive-regex-test
   :description "Tests for a recursive regular expressions"

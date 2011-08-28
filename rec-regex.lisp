@@ -8,7 +8,6 @@
 (cl-interpol:enable-interpol-syntax)
 (declaim (optimize (debug 3)))
 
-;; TODO: group binds in body expressions
 ;; TODO: propogate current scanner options to body scanners
 
 (defvar *groups* nil)
@@ -42,33 +41,31 @@
 
 (defun %collect-groups-to-tree (name scanner target
 				&optional (start 0) (end (length target))
-				&aux (existing-nodes *groups*) rtn)
+				&aux (existing-nodes *groups*)
+				rtn success?)
   (let* ((*groups* nil)
 	 ;; TODO: Bind these to the appropriate length
-         (CL-PPCRE::*REG-STARTS* #(nil nil nil nil nil nil))
-         (CL-PPCRE::*REG-ENDS* #(nil nil nil nil nil nil))
-         (results (setf
-                   rtn
-                   (multiple-value-list
-                    (cl-ppcre:scan scanner target :start start :end end))))
-         (s (first results))
-         (e (second results))
-         (match (when (first results) ;; mvl gives me '(nil)
-                  (make-displaced-array target s e)))
-         (group-starts (third results))
-         (group-ends (fourth results)))
-    (iter
-      (for start in-vector group-starts)
-      (for end in-vector group-ends)
-      (when (and start end)
-        (collect (make-displaced-array target start end) into groups))
-      (finally
-       (push (result-node
-              name s e match groups
-              (%current-results-without-backtracked-nodes))
-             existing-nodes))))
-  (setf *groups* existing-nodes)
-  rtn)
+         (cl-ppcre::*reg-starts* #(nil nil nil nil nil nil))
+         (cl-ppcre::*reg-ends* #(nil nil nil nil nil nil))
+         (results (multiple-value-list
+		      (cl-ppcre:scan scanner target :start start :end end))))
+    (setf rtn results success? (first rtn))
+    (when success?
+      (iter
+	(with (s e group-starts group-ends) = results)
+	(with match = (make-displaced-array target s e))
+	(for start in-vector group-starts)
+	(for end in-vector group-ends)
+	(when (and start end)
+	  (collect (make-displaced-array target start end) into groups))
+	(finally
+	 (push (result-node
+		name s e match groups
+		(%current-results-without-backtracked-nodes))
+	       existing-nodes)))))
+  (when success?
+    (setf *groups* existing-nodes)
+    rtn))
 
 (defun %current-results-without-backtracked-nodes ()
   (let* ((kids *groups*))
@@ -84,10 +81,11 @@
 
 (defun treeify-regex-results (tree)
   (labels ((help (tree)
-             (iter (for n in (kids tree))
-               (collect (treeify-regex-results n) into ns)
-               (finally
-                (return (list* (name tree) (full-match tree) ns))))))
+	     (when tree
+	       (iter (for n in (kids tree))
+		     (collect (treeify-regex-results n) into ns)
+		     (finally
+		      (return (list* (name tree) (full-match tree) ns)))))))
     (help tree)))
 
 (defun regex-recursive-groups (regex target
@@ -105,13 +103,19 @@
 
 (defun devoid (regex) (if (eql :void regex) nil regex))
 
-(defun make-matched-pair-matcher (name open-char close-char &optional (escape nil))
-  "Will create a regex filter that can match arbitrary pairs of matched characters
-   such as (start (other () some) end)"
+(defun make-matched-pair-matcher (name open-char close-char
+				  &optional (escape nil))
+  "Will create a regex filter that can match arbitrary pairs of
+   matched characters such as (start (other () some) end)"
   (lambda (body-regex &aux (br (devoid body-regex)))
     (setf body-regex (awhen (devoid body-regex)
+		       ;; TODO: I think it should be this but stack-overflow:
+		       `(:NAMED-REGISTER "body"
+			  ;; dispatch to body to capture it
+			  (:SEQUENCE :START-ANCHOR ,it :END-ANCHOR))
                        (create-recursive-scanner
-                        `(:SEQUENCE :START-ANCHOR ,it :END-ANCHOR))))
+			`(:SEQUENCE :START-ANCHOR ,it :END-ANCHOR)
+			)))
     (lambda (pos)
       (let ((*body-regex* body-regex)
             (*uncompiled-br* br)
@@ -124,8 +128,13 @@
           (when (>= pos (length cl-ppcre::*string*)) (return fail))
 
           (for c = (char cl-ppcre::*string* pos))
-          (for not-escaped? = (or (null escape) (not (eql escape last-c))))
-          (for last-c previous c)
+          (for c-1 previous c)
+	  (for c-2 previous c-1)
+	  (for not-escaped? =
+	       (or (null escape) ;; dont have an escape
+		   (not (eql escape c-1))
+		   (and (eql escape c-1)
+			(eql escape c-2))))
 
           ;; we dont match the open char so fail
           (when (and (first-iteration-p)
@@ -143,15 +152,16 @@
                (let* ((match-end (+ 1 pos))
                      (match (make-displaced-array
 			     cl-ppcre::*string* start match-end)))
-                 (cond
+                 (acond
                    ((null body-regex)
                     (push (result-node name start pos match) *groups*)
                     (return match-end))
                    ((%collect-groups-to-tree
-                     name
-                     body-regex cl-ppcre::*string* (+ 1 start) pos)
+                     name body-regex cl-ppcre::*string* (+ 1 start) pos)
                     (let ((me (first *groups*)))
-                      (setf (start me) start (end me) match-end (full-match me) match))
+                      (setf (start me) start
+			    (end me) match-end
+			    (full-match me) match))
                     (return match-end))
                    (T fail))))))
           (incf pos)
@@ -194,12 +204,15 @@
    pairs of parentheses"
   `(("body" . ,(make-body-matcher))
     ("parens" . ,(make-matched-pair-matcher "parens" #\( #\) ))
-    ("dbl-quotes" . ,(make-matched-pair-matcher "dbl-quotes" #\" #\" #\\ ))
+    ("brackets" . ,(make-matched-pair-matcher "brackets" #\{ #\} ))
+    ("braces" . ,(make-matched-pair-matcher "braces" #\[ #\] ))
+    ("angles" . ,(make-matched-pair-matcher "angles" #\< #\> ))
+    ("double-quotes" . ,(make-matched-pair-matcher "double-quotes" #\" #\" #\\ ))
     ("single-quotes" . ,(make-matched-pair-matcher "single-quotes" #\' #\' #\\ ))
     ("comma-list" . ,(make-named-regex-matcher "comma-list"
                       #?r"[\t ]*(?:(?<body>[^,]*)[\t ]*,)*[\t ]*(?<body>[^,]*)[\t ]*"))
     ("csv-row"  . ,(make-named-regex-matcher "csv-row"
-                      #?r"(?<comma-list>((?<dbl-quotes>)|[^\n,]*))(?:\n|$)"))
+                      #?r"(?<comma-list>((?<double-quotes>)|[^\n,]*))(?:\n|$)"))
     ("csv-file"  . ,(make-named-regex-matcher "csv-file"
                       #?r"(?<csv-row>)*"))))
 
