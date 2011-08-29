@@ -18,6 +18,13 @@
 	      :displaced-to array
 	      :displaced-index-offset start))
 
+(define-condition inner-match ()
+  ((data :accessor data :initarg :data :initform nil)))
+
+(defun inner-match (data)
+  (restart-case (signal (make-condition 'inner-match :data data))
+    (continue-matching)))
+
 (defclass result-node () 
   ((name :accessor name :initarg :name :initform nil)
    (start :accessor start :initarg :start :initform nil)
@@ -30,7 +37,7 @@
   (make-instance 'result-node :name name :start start :end end
                               :full-match full-match :groups groups :kids kids))
 
-(defmethod print-object ((o result-node) (s stream))
+(defmethod print-object ((o result-node) s)
   "Print the database object, and a couple of the most common identity slots."
   (print-unreadable-object (o s :type t :identity t)
     (format s "~A s:~D e:~D kids:~a ~S "
@@ -41,15 +48,17 @@
 
 (defun %collect-groups-to-tree (name scanner target
 				&optional (start 0) (end (length target))
-				&aux (existing-nodes *groups*)
-				rtn success?)
-  (let* ((*groups* nil)
-	 ;; TODO: Bind these to the appropriate length
-         (cl-ppcre::*reg-starts* #(nil nil nil nil nil nil))
-         (cl-ppcre::*reg-ends* #(nil nil nil nil nil nil))
-         (results (multiple-value-list
-		      (cl-ppcre:scan scanner target :start start :end end))))
-    (setf rtn results success? (first rtn))
+				&aux children)
+  
+  (let* ( ;; TODO: Bind these to the appropriate length
+	 (cl-ppcre::*reg-starts* #(nil nil nil nil nil nil))
+	 (cl-ppcre::*reg-ends* #(nil nil nil nil nil nil))
+	 (results
+	  (multiple-value-list
+	      (handler-bind
+		  ((inner-match (lambda (c) (push (data c) children))))
+		(cl-ppcre:scan scanner target :start start :end end))))
+	 (success? (first results)))
     (when success?
       (iter
 	(with (s e group-starts group-ends) = results)
@@ -59,25 +68,23 @@
 	(when (and start end)
 	  (collect (make-displaced-array target start end) into groups))
 	(finally
-	 (push (result-node
-		name s e match groups
-		(%current-results-without-backtracked-nodes))
-	       existing-nodes)))))
-  (when success?
-    (setf *groups* existing-nodes)
-    rtn))
+	 (let ((n (result-node
+		   name s e match groups
+		   (%current-results-without-backtracked-nodes
+		    children))))
+	   (signal (make-condition 'inner-match :data n)))))
+      results)))
 
-(defun %current-results-without-backtracked-nodes ()
-  (let* ((kids *groups*))
-    ;; handle backtracking (remove groups that were backtracked passed)
-    (iter
-      (for n in kids)
-      (for (start end) = (list (start n) (end n)))
-      (for last-start previous start)
-      (when (or (null last-start)
-                (>= last-start end))
-        (collect n at start into res))
-      (finally (return res)))))
+(defun %current-results-without-backtracked-nodes (kids )  
+  ;; handle backtracking (remove groups that were backtracked passed)
+  (iter
+    (for n in kids)
+    (for (start end) = (list (start n) (end n)))
+    (for last-start previous start)
+    (when (or (null last-start)
+	      (>= last-start end))
+      (collect n at start into res))
+    (finally (return res))))
 
 (defun treeify-regex-results (tree)
   (labels ((help (tree)
@@ -90,12 +97,11 @@
 
 (defun regex-recursive-groups (regex target
 			       &optional (dispatchers *dispatchers*))
-  (let ((*groups* nil)
-	(*dispatchers* dispatchers)
+  (let ((*dispatchers* dispatchers)
         (scanner (create-recursive-scanner regex dispatchers))
         res)
-    (%collect-groups-to-tree :root scanner target)
-    (setf res (pop *groups*))
+    (handler-bind ((inner-match (lambda (c) (setf res (data c)))))
+    (%collect-groups-to-tree :root scanner target))
     (values res (treeify-regex-results res))))
 
 (defvar *body-regex* nil )
@@ -156,18 +162,22 @@
 			     cl-ppcre::*string* start match-end)))
                  (acond
 		   ;; dont have a body to match so, just push our match
-                   ((null body-regex) 
-                    (push (result-node name start pos match) *groups*)
+                   ((null body-regex)
+		    (let ((n (result-node name start pos match)))
+		      (signal (make-condition 'inner-match :data n))) 
                     (return match-end))
 		   ;; we have a body to match, and it matched so set
 		   ;; the information on our node and assume kids are
 		   ;; in place
-                   ((%collect-groups-to-tree
-                     name body-regex cl-ppcre::*string* (+ 1 start) pos)
-                    (let ((me (first *groups*)))
-                      (setf (start me) start
-			    (end me) match-end
-			    (full-match me) match))
+                   ((handler-bind
+			((inner-match
+			  (lambda (c &aux (me (data c)))
+			    (setf (start me) start
+				  (end me) match-end
+				  (full-match me) match)
+			    )))
+		      (%collect-groups-to-tree
+		       name body-regex cl-ppcre::*string* (+ 1 start) pos))
                     (return match-end))
 		   ;; our body didnt match so we must fail
                    (T fail))))))
