@@ -23,7 +23,8 @@
 
 (defun inner-match (data)
   (restart-case (signal (make-condition 'inner-match :data data))
-    (continue-matching)))
+    (continue (&optional c) c)))
+
 
 (defclass result-node () 
   ((name :accessor name :initarg :name :initform nil)
@@ -49,14 +50,13 @@
 (defun %collect-groups-to-tree (name scanner target
 				&optional (start 0) (end (length target))
 				&aux children)
-  
   (let* ( ;; TODO: Bind these to the appropriate length
 	 (cl-ppcre::*reg-starts* #(nil nil nil nil nil nil))
 	 (cl-ppcre::*reg-ends* #(nil nil nil nil nil nil))
 	 (results
 	  (multiple-value-list
 	      (handler-bind
-		  ((inner-match (lambda (c) (push (data c) children))))
+		  ((inner-match (lambda (c) (push (data c) children) (continue c))))
 		(cl-ppcre:scan scanner target :start start :end end))))
 	 (success? (first results)))
     (when success?
@@ -72,10 +72,10 @@
 		   name s e match groups
 		   (%current-results-without-backtracked-nodes
 		    children))))
-	   (signal (make-condition 'inner-match :data n)))))
+           (inner-match n))))
       results)))
 
-(defun %current-results-without-backtracked-nodes (kids )  
+(defun %current-results-without-backtracked-nodes (kids )
   ;; handle backtracking (remove groups that were backtracked passed)
   (iter
     (for n in kids)
@@ -100,7 +100,7 @@
   (let ((*dispatchers* dispatchers)
         (scanner (create-recursive-scanner regex dispatchers))
         res)
-    (handler-bind ((inner-match (lambda (c) (setf res (data c)))))
+    (handler-bind ((inner-match (lambda (c) (setf res (data c)) (continue c))))
     (%collect-groups-to-tree :root scanner target))
     (values res (treeify-regex-results res))))
 
@@ -164,7 +164,7 @@
 		   ;; dont have a body to match so, just push our match
                    ((null body-regex)
 		    (let ((n (result-node name start pos match)))
-		      (signal (make-condition 'inner-match :data n))) 
+		      (inner-match n))
                     (return match-end))
 		   ;; we have a body to match, and it matched so set
 		   ;; the information on our node and assume kids are
