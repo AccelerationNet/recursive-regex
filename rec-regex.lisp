@@ -1,6 +1,7 @@
-(cl:defpackage :rec-regex
+(cl:defpackage :recursive-regex
+    (:nicknames :recex :rec-regex)
   (:use :cl :cl-user :iterate :anaphora)
-  (:export :result-node :start :end :full-match :groups :kids
+  (:export :result-node :start :end :full-match :groups :kids :name
 	   :treeify-regex-results :create-recursive-scanner
 	   :regex-recursive-groups))
 
@@ -92,6 +93,7 @@
 	      (>= last-start end))
       (collect n at start into res))
     (finally (return res))))
+
 
 (defun treeify-regex-results (tree)
   (labels ((help (tree)

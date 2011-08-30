@@ -4,7 +4,6 @@
 
 (in-package :rec-regex-test)
 (cl-interpol:enable-interpol-syntax)
-(declaim (optimize (debug 3)))
 
 (defparameter *parens-test-phrase*
   "some times I like to \"function (calling all coppers (), another param (), test)\" just to see what happens")
@@ -15,6 +14,13 @@ multiline", data
 row2,of,the,"test
 of
 multiline", data|)
+
+(defun find-node (tree name)
+  (if (eql (name tree) name)
+      tree
+      (iter (for k in (kids tree))
+	    (awhen (find-node k name)
+	      (return it)))))
 
 (define-test parens
   (let ((res (regex-recursive-groups
@@ -29,15 +35,20 @@ multiline", data|)
     (assert-true res)))
 
 (define-test parens-no-match
-  (let ((res (regex-recursive-groups
+  (let* ((res (regex-recursive-groups
 	      #?r"function\s*(?<parens>not-matching-at-all)"
 	      *parens-test-phrase*)))
     (assert-false res)))
 
 (define-test parens-comma-list
-  (let ((res (regex-recursive-groups
+  (let* ((res (regex-recursive-groups
            #?r"function\s*(?<parens>(?<comma-list>))"
-	   *parens-test-phrase* )))
+	   *parens-test-phrase* ))
+	(commas (find-node res :comma-list)))
+    (assert-eql 3 (length (kids commas))
+		"backtracking should remove a match")
+    ;;Backtracking will remove a match of test from the
+    ;; ((body),)* phrase and replace it with the final (body)
     (assert-true res)))
 
 (define-test double-quotes
