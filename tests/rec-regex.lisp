@@ -22,7 +22,7 @@ multiline", data|)
 	    (awhen (find-node k name)
 	      (return it)))))
 
-(defun find-nodes (tree &key name)  
+(defun find-nodes (tree &key name)
   (iter
     (when (and (first-iteration-p)
 	       (eql (name tree) name)

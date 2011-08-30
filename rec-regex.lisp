@@ -3,18 +3,20 @@
   (:use :cl :cl-user :iterate :anaphora)
   (:export :result-node :start :end :full-match :groups :kids :name
 	   :treeify-regex-results :create-recursive-scanner
-	   :regex-recursive-groups))
+	   :regex-recursive-groups
+
+	   :add-body-matcher
+	   :add-named-regex-matcher
+	   :add-matched-pair-matcher
+	   :clear-dispatchers ))
 
 (in-package :rec-regex)
 (cl-interpol:enable-interpol-syntax)
 
 ;; TODO: propogate current scanner options to body scanners
-
-(defun make-displaced-array (array &optional (start 0) (end (length array)))
-  (make-array (- end start)
-	      :element-type (array-element-type array)
-	      :displaced-to array
-	      :displaced-index-offset start))
+(defparameter *dispatchers* nil)
+(defvar *body-regex* nil )
+(defvar *uncompiled-br*  nil)
 
 (define-condition inner-match ()
   ((data :accessor data :initarg :data :initform nil)))
@@ -25,6 +27,12 @@
 
 (defun continue-matching (&optional c)
   (invoke-restart 'continue-matching c))
+
+(defun make-displaced-array (array &optional (start 0) (end (length array)))
+  (make-array (- end start)
+	      :element-type (array-element-type array)
+	      :displaced-to array
+	      :displaced-index-offset start))
 
 (defclass result-node () 
   ((name :accessor name :initarg :name :initform nil)
@@ -39,7 +47,6 @@
                               :full-match full-match :groups groups :kids kids))
 
 (defmethod print-object ((o result-node) s)
-  "Print the database object, and a couple of the most common identity slots."
   (print-unreadable-object (o s :type t :identity t)
     (format s "~A s:~D e:~D kids:~a ~S "
             (name o)
@@ -48,7 +55,8 @@
     ))
 
 (defmacro with-child-pusher ((place) &body body)
-  "pushes child-matches into the place and continues-matching"
+  "pushes child-matches into the place and continues-matching
+   discards results that have been backtracked passed"
   `(handler-bind
       ((inner-match
 	(lambda (c)
@@ -88,27 +96,6 @@
            (inner-match n))))
       results)))
 
-(defun treeify-regex-results (tree)
-  (labels ((help (tree)
-	     (when tree
-	       (iter (for n in (kids tree))
-		     (collect (treeify-regex-results n) into ns)
-		     (finally
-		      (return (list* (name tree) (full-match tree) ns)))))))
-    (help tree)))
-
-(defun regex-recursive-groups (regex target
-			       &optional (dispatchers *dispatchers*))
-  (let ((*dispatchers* dispatchers)
-        (scanner (create-recursive-scanner regex dispatchers))
-        res)
-    (with-child-pusher (res)
-      (%collect-groups-to-tree :root scanner target))
-    (values (first res) (treeify-regex-results (first res)))))
-
-(defvar *body-regex* nil )
-(defvar *uncompiled-br*  nil)
-
 (defun devoid (regex) (if (eql :void regex) nil regex))
 
 (defun make-matched-pair-matcher (name open-char close-char
@@ -132,20 +119,22 @@
             (name (symbol-munger:english->keyword #?"matched ${name}"))
             fail
             (start pos)
-            (cnt 0))
+            (cnt 0) (escape-cnt 0))
         (iter
           ;; went past the string without matching
           (when (>= pos (length cl-ppcre::*string*)) (return fail))
 
           (for c = (char cl-ppcre::*string* pos))
           (for c-1 previous c)
-	  (for c-2 previous c-1)
+	  (if (and c-1 (eql c-1 escape))
+	      (incf escape-cnt)
+	      (setf escape-cnt 0))
+	  
 	  (for not-escaped? =
-	       (or (null escape) ;; dont have an escape
-		   (not (eql escape c-1))
-		   (and (eql escape c-1)
-			(eql escape c-2))))
-
+	       (or (null escape) ;; dont have an escape-char
+		   (evenp escape-cnt) ;; zero escapes, escaped-escape, etc
+		   ))
+	  
           ;; we dont match the open char so fail
           (when (and (first-iteration-p)
                      (not (eql c open-char)))
@@ -203,7 +192,7 @@
           (when results
             (second results)))))))
 
-(defun make-body-matcher ()
+(defun make-body-matcher ( &optional (name :body))
   "Handles matching the body of a named regular expression"
   (lambda (body-regex &aux (br (devoid body-regex)))
     ;; handle default body regex (if one is not provided)
@@ -214,32 +203,52 @@
         (let* ((*uncompiled-br* (or *uncompiled-br* br))
                (results
 		(%collect-groups-to-tree
-		 :body it cl-ppcre::*string* pos cl-ppcre::*end-pos*))
+		 name it cl-ppcre::*string* pos cl-ppcre::*end-pos*))
                (end (second results)))
           end)))))
 
-(defun default-dispatch-table ()
+(defun clear-dispatchers ()
+  "removes all the dispatchers"
+  (setf *dispatchers* nil))
+
+(defun add-body-matcher (name)
+  "Add a new body matcher that dispatches on name"
+  (push (cons name (make-body-matcher)) *dispatchers*))
+
+(defun add-named-regex-matcher (name regex)
+  "Add a new dispatcher on name to child regex"
+  (push (cons name (make-named-regex-matcher name regex))
+	*dispatchers*))
+
+(defun add-matched-pair-matcher (name open close &optional escape)
+  "Add a matched pair matcher dispatched on name"
+  (push
+   (cons name (make-matched-pair-matcher name open close escape))
+   *dispatchers*))
+
+(defun make-default-dispatch-table ()
   "Creates a default dispatch table with a parens dispatcher that can match
    pairs of parentheses"
-  `(("body" . ,(make-body-matcher))
-    ("parens" . ,(make-matched-pair-matcher "parens" #\( #\) ))
-    ("brackets" . ,(make-matched-pair-matcher "brackets" #\{ #\} ))
-    ("braces" . ,(make-matched-pair-matcher "braces" #\[ #\] ))
-    ("angles" . ,(make-matched-pair-matcher "angles" #\< #\> ))
-    ("double-quotes" . ,(make-matched-pair-matcher "double-quotes" #\" #\" #\\ ))
-    ("single-quotes" . ,(make-matched-pair-matcher "single-quotes" #\' #\' #\\ ))
-    ("comma-list" . ,(make-named-regex-matcher "comma-list"
-                      #?r"[\t ]*(?:(?<body>[^,]*)[\t ]*,)*[\t ]*(?<body>[^,]*)[\t ]*"))
-    ("csv-row"  . ,(make-named-regex-matcher "csv-row"
-                      #?r"(?<comma-list>((?<double-quotes>)|[^\n,]*))(?:\n|$)"))
-    ("csv-file"  . ,(make-named-regex-matcher "csv-file"
-                      #?r"(?<csv-row>)*"))))
+  (clear-dispatchers)
+  (add-body-matcher "body")
+  (add-matched-pair-matcher "parens" #\( #\))
+  (add-matched-pair-matcher "brackets" #\{ #\} ) 
+  (add-matched-pair-matcher "braces" #\[ #\] )
+  (add-matched-pair-matcher "angles" #\< #\> )
+  (add-matched-pair-matcher "double-quotes" #\" #\" #\\ )
+  (add-matched-pair-matcher "single-quotes" #\' #\' #\\ )
+  (add-named-regex-matcher
+   "comma-list" #?r"[\t ]*(?:(?<body>[^,]*)[\t ]*,)*[\t ]*(?<body>[^,]*)[\t ]*")
+  (add-named-regex-matcher
+   "csv-row" #?r"(?<comma-list>((?<double-quotes>)|[^\n,]*))(?:\n|$)")
+  (add-named-regex-matcher "csv-file" #?r"(?<csv-row>)*"))
 
-(defparameter *dispatchers* (default-dispatch-table))
+(make-default-dispatch-table)
 
 (defun create-recursive-scanner
     (regex &optional (function-table *dispatchers*)
-           &aux (cl-ppcre:*allow-named-registers* T))
+     &aux (cl-ppcre:*allow-named-registers* T)
+     (*dispatchers* function-table))
   "Allows named registers to refer to functions that should be in
    the place of the named register"
   (typecase regex
@@ -268,6 +277,25 @@
                             (collect (mutate-tree item))))))))
          ;; mutate the regex to contain our matcher functions
          ;; then compile it
-         (cl-ppcre:create-scanner (mutate-tree p-tree)))))
-    ))
+         (cl-ppcre:create-scanner (mutate-tree p-tree)))))))
+
+(defun treeify-regex-results (tree)
+  "Make a lisp tree of the results
+   of the matches from the clos tree"
+  (when tree
+    (iter
+      (for n in (kids tree))
+      (collect (treeify-regex-results n) into ns)
+      (finally
+       (return (list* (name tree) (full-match tree) ns))))))
+
+(defun regex-recursive-groups (regex target
+			       &optional (dispatchers *dispatchers*)
+			       &aux (*dispatchers* dispatchers) res)
+  "run a recursive regular expression and gather all the results for
+   each of them into a tree"
+  (let ((scanner (create-recursive-scanner regex dispatchers)))
+    (with-child-pusher (res)
+      (%collect-groups-to-tree :root scanner target))
+    (values (first res) (treeify-regex-results (first res)))))
 
