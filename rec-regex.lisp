@@ -4,7 +4,6 @@
   (:export :result-node :start :end :full-match :groups :kids :name
 	   :treeify-regex-results :create-recursive-scanner
 	   :regex-recursive-groups
-
 	   :add-body-matcher
 	   :add-named-regex-matcher
 	   :add-matched-pair-matcher
@@ -97,44 +96,37 @@
       results)))
 
 (defun devoid (regex) (if (eql :void regex) nil regex))
+(defun convert-to-full-match (regex)
+  (awhen (devoid regex)
+    `(:SEQUENCE :START-ANCHOR ,it :END-ANCHOR)))
 
 (defun make-matched-pair-matcher (name open-char close-char
 				  &optional (escape nil))
   "Will create a regex filter that can match arbitrary pairs of
    matched characters such as (start (other () some) end)"
-  (lambda (body-regex &aux (br (devoid body-regex)))
-    (setf body-regex (awhen (devoid body-regex)
+  (lambda (body-regex &aux (br (convert-to-full-match body-regex)))
+    (setf body-regex (when br
                        (create-recursive-scanner
-			`(:NAMED-REGISTER
-			  "body"
-			  ;; dispatch to body to capture it
-			  (:SEQUENCE :START-ANCHOR ,br :END-ANCHOR)))))
+			`(:NAMED-REGISTER "body" ,br))))
     (lambda (pos)
-      (let ((*body-regex* nil) 
+      (let ((*body-regex* nil)
 	      ;; because we compiled it into a default body above
-            (*uncompiled-br* `(:NAMED-REGISTER
-			       "body"
-			       ;; dispatch to body to capture it
-			       (:SEQUENCE :START-ANCHOR ,br :END-ANCHOR)))
+            (*uncompiled-br* `(:NAMED-REGISTER "body" ,br))
             (name (symbol-munger:english->keyword #?"matched ${name}"))
             fail
             (start pos)
             (cnt 0) (escape-cnt 0))
         (iter
-          ;; went past the string without matching
           (when (>= pos (length cl-ppcre::*string*)) (return fail))
-
           (for c = (char cl-ppcre::*string* pos))
           (for c-1 previous c)
 	  (if (and c-1 (eql c-1 escape))
 	      (incf escape-cnt)
 	      (setf escape-cnt 0))
-	  
 	  (for not-escaped? =
 	       (or (null escape) ;; dont have an escape-char
 		   (evenp escape-cnt) ;; zero escapes, escaped-escape, etc
 		   ))
-	  
           ;; we dont match the open char so fail
           (when (and (first-iteration-p)
                      (not (eql c open-char)))
@@ -149,8 +141,8 @@
              (decf cnt)
              (when (zerop cnt) ;; found our last matching char
                (let* ((match-end (+ 1 pos))
-                     (match (make-displaced-array
-			     cl-ppcre::*string* start match-end)))
+                      (match (make-displaced-array
+                              cl-ppcre::*string* start match-end)))
                  (acond
 		   ;; dont have a body to match so, just push our match
                    ((null body-regex)
@@ -162,11 +154,11 @@
 		   ;; in place
                    ((handler-bind
 			((inner-match
-			  (lambda (c &aux (me (data c)))
-			    (setf (start me) start
-				  (end me) match-end
-				  (full-match me) match)
-			    )))
+                           (lambda (c &aux (me (data c)))
+                             (setf (start me) start
+                                   (end me) match-end
+                                   (full-match me) match)
+                             )))
 		      (%collect-groups-to-tree
 		       name body-regex cl-ppcre::*string* (+ 1 start) pos))
                     (return match-end))
@@ -177,9 +169,9 @@
 
 (defun make-named-regex-matcher (name named-regex)
   "Handles matching by delegating to another named regular expression"
-  (lambda (body-regex &aux (br (devoid body-regex)))
-    (setf body-regex (awhen (devoid body-regex)
-                       (create-recursive-scanner it)))
+  (lambda (body-regex
+      &aux (br (convert-to-full-match body-regex)))
+    (setf body-regex (when br (create-recursive-scanner br)))
     (setf named-regex (create-recursive-scanner named-regex))
     (setf name (symbol-munger:english->keyword name))
     (lambda (pos)
@@ -194,16 +186,16 @@
 
 (defun make-body-matcher ( &optional (name :body))
   "Handles matching the body of a named regular expression"
-  (lambda (body-regex &aux (br (devoid body-regex)))
+  (lambda (default-body-regex
+      &aux (br (convert-to-full-match default-body-regex)))
     ;; handle default body regex (if one is not provided)
-    (setf body-regex (awhen (devoid body-regex)
-                       (create-recursive-scanner it)))
+    (setf default-body-regex (create-recursive-scanner br))
     (lambda (pos)
-      (awhen (or *body-regex* body-regex)
+      (awhen (or *body-regex* default-body-regex)
         (let* ((*uncompiled-br* (or *uncompiled-br* br))
                (results
-		(%collect-groups-to-tree
-		 name it cl-ppcre::*string* pos cl-ppcre::*end-pos*))
+                 (%collect-groups-to-tree
+                  name it cl-ppcre::*string* pos cl-ppcre::*end-pos*))
                (end (second results)))
           end)))))
 
@@ -232,7 +224,7 @@
   (clear-dispatchers)
   (add-body-matcher "body")
   (add-matched-pair-matcher "parens" #\( #\))
-  (add-matched-pair-matcher "brackets" #\{ #\} ) 
+  (add-matched-pair-matcher "brackets" #\{ #\} )
   (add-matched-pair-matcher "braces" #\[ #\] )
   (add-matched-pair-matcher "angles" #\< #\> )
   (add-matched-pair-matcher "double-quotes" #\" #\" #\\ )
@@ -298,4 +290,18 @@
     (with-child-pusher (res)
       (%collect-groups-to-tree :root scanner target))
     (values (first res) (treeify-regex-results (first res)))))
+
+(defun example-sexp-parser (string)
+  (let ((*dispatchers*))
+    (clear-dispatchers)
+    (add-body-matcher "body")
+    (add-matched-pair-matcher "parens" #\( #\))
+    (add-matched-pair-matcher "string" #\" #\" #\\ )
+    (add-matched-pair-matcher "symbol-bars" #\| #\| #\\ )
+    (add-named-regex-matcher "prefix" #?r"('|#.?)")
+    (add-named-regex-matcher "name" #?r"^(?i)(?:\d|\w|_|-|\+|=|\*|&|\^|%|\$|@|!)+$")
+    (add-named-regex-matcher "atom" #?r"^(?:(?<name>)|(?<string>)|(?<symbol-bars>))$")
+    ;;(add-named-regex-matcher "sexp" #?r"(?<prefix>)*((?<parens>\s*((?<sexp>)\s*)*)|(?<atom>))")
+    (regex-recursive-groups #?r"\s*(?<atom>)\s*" string)
+    ))
 
