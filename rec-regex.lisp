@@ -6,11 +6,8 @@
 
 (in-package :rec-regex)
 (cl-interpol:enable-interpol-syntax)
-(declaim (optimize (debug 3)))
 
 ;; TODO: propogate current scanner options to body scanners
-
-(defvar *groups* nil)
 
 (defun make-displaced-array (array &optional (start 0) (end (length array)))
   (make-array (- end start)
@@ -23,8 +20,10 @@
 
 (defun inner-match (data)
   (restart-case (signal (make-condition 'inner-match :data data))
-    (continue (&optional c) c)))
+    (continue-matching (&optional c) c)))
 
+(defun continue-matching (&optional c)
+  (invoke-restart 'continue-matching c))
 
 (defclass result-node () 
   ((name :accessor name :initarg :name :initform nil)
@@ -47,6 +46,15 @@
             (full-match o))
     ))
 
+(defmacro with-child-pusher ((place) &body body)
+  "pushes child-matches into the place and continues-matching"
+  `(handler-bind
+      ((inner-match
+	(lambda (c)
+	  (push (data c) ,place)
+	  (continue-matching c))))
+    ,@body))
+
 (defun %collect-groups-to-tree (name scanner target
 				&optional (start 0) (end (length target))
 				&aux children)
@@ -55,9 +63,8 @@
 	 (cl-ppcre::*reg-ends* #(nil nil nil nil nil nil))
 	 (results
 	  (multiple-value-list
-	      (handler-bind
-		  ((inner-match (lambda (c) (push (data c) children) (continue c))))
-		(cl-ppcre:scan scanner target :start start :end end))))
+	    (with-child-pusher (children)
+	      (cl-ppcre:scan scanner target :start start :end end))))
 	 (success? (first results)))
     (when success?
       (iter
@@ -100,9 +107,9 @@
   (let ((*dispatchers* dispatchers)
         (scanner (create-recursive-scanner regex dispatchers))
         res)
-    (handler-bind ((inner-match (lambda (c) (setf res (data c)) (continue c))))
-    (%collect-groups-to-tree :root scanner target))
-    (values res (treeify-regex-results res))))
+    (with-child-pusher (res)
+      (%collect-groups-to-tree :root scanner target))
+    (values (first res) (treeify-regex-results (first res)))))
 
 (defvar *body-regex* nil )
 (defvar *uncompiled-br*  nil)
