@@ -22,6 +22,14 @@ multiline", data|)
 	    (awhen (find-node k name)
 	      (return it)))))
 
+(defun find-nodes (tree &key name)  
+  (iter
+    (when (and (first-iteration-p)
+	       (eql (name tree) name)
+	       (collect tree)))
+    (for k in (kids tree))
+    (appending (find-nodes k :name name))))
+
 (define-test parens
   (let ((res (regex-recursive-groups
 	      #?r"function\s*(?<parens>)"
@@ -72,8 +80,8 @@ multiline", data|)
   (let* ((res (regex-recursive-groups
 	       #?r"(?<csv-file>)"
 	       *test-csv*))
-	 (rows (kids (first (kids res))))
-	 (commas (first (kids (first rows))))
+	 (rows (find-nodes res :name :csv-row))
+	 (commas (find-node (first rows) :comma-list))
 	 (row1 (iter (for k in (kids commas))
 		     (collect (full-match k)))))
     
