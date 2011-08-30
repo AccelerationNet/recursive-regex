@@ -52,13 +52,19 @@
   `(handler-bind
       ((inner-match
 	(lambda (c)
-	  (push (data c) ,place)
-	  (continue-matching c))))
+	  (let ((new-kid (data c)))
+	    ;; handle backtracking
+	    ;; (remove matches that end after our start)
+	    (iter (for n = (first ,place))
+		  (while (and n (< (start new-kid) (end n))))
+		  (pop ,place))
+	    (push new-kid ,place)
+	    (continue-matching c)))))
     ,@body))
 
 (defun %collect-groups-to-tree (name scanner target
 				&optional (start 0) (end (length target))
-				&aux children)
+				&aux (children (list)))
   (let* ( ;; TODO: Bind these to the appropriate length
 	 (cl-ppcre::*reg-starts* #(nil nil nil nil nil nil))
 	 (cl-ppcre::*reg-ends* #(nil nil nil nil nil nil))
@@ -78,22 +84,9 @@
 	(finally
 	 (let ((n (result-node
 		   name s e match groups
-		   (%current-results-without-backtracked-nodes
-		    children))))
+		   (nreverse children))))
            (inner-match n))))
       results)))
-
-(defun %current-results-without-backtracked-nodes (kids )
-  ;; handle backtracking (remove groups that were backtracked passed)
-  (iter
-    (for n in kids)
-    (for (start end) = (list (start n) (end n)))
-    (for last-start previous start)
-    (when (or (null last-start)
-	      (>= last-start end))
-      (collect n at start into res))
-    (finally (return res))))
-
 
 (defun treeify-regex-results (tree)
   (labels ((help (tree)
