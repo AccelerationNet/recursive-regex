@@ -237,6 +237,17 @@
 
 (make-default-dispatch-table)
 
+(defun %make-dispatcher (name body-regex function-table)
+  "Whenever we meet a named group, change it to a named dispatcher
+   if we find it in the list we use that matcher, otherwise we use
+   a body matcher."
+  (lambda (pos)
+    (let ((fn (aif (cdr (assoc name function-table :test #'string-equal))
+		   it
+		   (make-body-matcher))))
+      ;; (break "Dispatch: ~A ~A ~A ~A" pos name body-regex fn)
+      (funcall (funcall fn body-regex) pos))))
+  
 (defun create-recursive-scanner
     (regex &optional (function-table *dispatchers*)
      &aux (cl-ppcre:*allow-named-registers* T)
@@ -250,23 +261,24 @@
       function-table))
     (list regex
      (let* ((p-tree regex))
-       (labels ((dispatcher? (name)
-                  "Return the name of the dispatcher from the table if
-                applicable"
-                  (cdr (assoc name function-table :test #'string-equal)))
-                (mutate-tree (tree)
+       (labels ((mutate-tree (tree)
                   "Changes the scanner parse tree to include any filter
                 functions specified in the table"
                   (typecase tree
                     (null nil)
                     (atom tree)
                     (list
-                     (aif (and (eql :named-register (first tree))
-                               (dispatcher? (second tree)))
-                          `(:named-register ,(second tree)
-                            (:filter ,(funcall it (third tree))))
-                          (iter (for item in tree)
-                            (collect (mutate-tree item))))))))
+		       ;; all named-registers should call to the
+		       ;; dispatcher for resolution (by default)
+		       ;; just matching the regex in the named group
+		       (if (eql :named-register (first tree))
+			  `(:named-register ,(second tree)
+			    (:filter
+			     ,(%make-dispatcher
+			       (second tree) (third tree)
+			       function-table)))
+			   (iter (for item in tree)
+				 (collect (mutate-tree item))))))))
          ;; mutate the regex to contain our matcher functions
          ;; then compile it
          (cl-ppcre:create-scanner (mutate-tree p-tree)))))))
@@ -299,9 +311,14 @@
     (add-matched-pair-matcher "string" #\" #\" #\\ )
     (add-matched-pair-matcher "symbol-bars" #\| #\| #\\ )
     (add-named-regex-matcher "prefix" #?r"('|#.?)")
-    (add-named-regex-matcher "name" #?r"^(?i)(?:\d|\w|_|-|\+|=|\*|&|\^|%|\$|@|!)+$")
-    (add-named-regex-matcher "atom" #?r"^(?:(?<name>)|(?<string>)|(?<symbol-bars>))$")
-    ;;(add-named-regex-matcher "sexp" #?r"(?<prefix>)*((?<parens>\s*((?<sexp>)\s*)*)|(?<atom>))")
-    (regex-recursive-groups #?r"\s*(?<atom>)\s*" string)
+    (add-named-regex-matcher
+     "name" #?r"^(?i)(?:\d|\w|_|-|\+|=|\*|&|\^|%|\$|@|!)+$")
+    (add-named-regex-matcher
+     "atom" #?r"^(?:(?<name>)|(?<string>)|(?<symbol-bars>))$")
+    (add-named-regex-matcher
+     "sexp-list" #?r"^\s*(?:(?<sexp>)\s+)*(?<sexp>)\s*$")
+    (add-named-regex-matcher
+     "sexp" #?r"(?<prefix>)*(?:(?<parens>(?<sexp-list>)?)|(?<atom>))")
+    (regex-recursive-groups #?r"(?<sexp>)" string)
     ))
 
