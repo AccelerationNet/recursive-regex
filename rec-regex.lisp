@@ -98,7 +98,9 @@
 (defun devoid (regex) (if (eql :void regex) nil regex))
 (defun convert-to-full-match (regex)
   (awhen (devoid regex)
-    `(:SEQUENCE :START-ANCHOR ,it :END-ANCHOR)))
+    ;;it
+    `(:SEQUENCE :START-ANCHOR ,it :END-ANCHOR)
+    ))
 
 (defun make-matched-pair-matcher (name open-char close-char
 				  &optional (escape nil))
@@ -157,8 +159,7 @@
                            (lambda (c &aux (me (data c)))
                              (setf (start me) start
                                    (end me) match-end
-                                   (full-match me) match)
-                             )))
+                                   (full-match me) match))))
 		      (%collect-groups-to-tree
 		       name body-regex cl-ppcre::*string* (+ 1 start) pos))
                     (return match-end))
@@ -303,22 +304,34 @@
       (%collect-groups-to-tree :root scanner target))
     (values (first res) (treeify-regex-results (first res)))))
 
-(defun example-sexp-parser (string)
+(defparameter +sexp-dispatchers+
   (let ((*dispatchers*))
     (clear-dispatchers)
     (add-body-matcher "body")
     (add-matched-pair-matcher "parens" #\( #\))
     (add-matched-pair-matcher "string" #\" #\" #\\ )
     (add-matched-pair-matcher "symbol-bars" #\| #\| #\\ )
-    (add-named-regex-matcher "prefix" #?r"('|#.?)")
+    (add-named-regex-matcher "prefix" #?r"(?:'|`|#)")
     (add-named-regex-matcher
-     "name" #?r"^(?i)(?:\d|\w|_|-|\+|=|\*|&|\^|%|\$|@|!)+$")
+     "name" #?r"(?i)(?:\d|\w|_|-|\+|=|\*|&|\^|%|\$|@|!)+")
     (add-named-regex-matcher
-     "atom" #?r"^(?:(?<name>)|(?<string>)|(?<symbol-bars>))$")
+     ;; TODO: It would be cooler if this worked irrespective of order
+     "atom" #?r"(?:(?<string>)|(?<symbol-bars>)|(?<name>))")
     (add-named-regex-matcher
-     "sexp-list" #?r"^\s*(?:(?<sexp>)\s+)*(?<sexp>)\s*$")
+     "sexp-list" #?r"\s*(?:(?<sexp>)\s+)*(?<sexp>)\s*")
+
     (add-named-regex-matcher
-     "sexp" #?r"(?<prefix>)*(?:(?<parens>(?<sexp-list>)?)|(?<atom>))")
-    (regex-recursive-groups #?r"(?<sexp>)" string)
-    ))
+     "less-sexp" #?r"(?<parens>^(?<sexp-list>)?$)|(?<atom>)")
+    
+    (add-named-regex-matcher
+     "sexp" #?r"(?<less-sexp>)|(?<prefix>)(?<sexp>)")
+    *dispatchers*))
+
+(defmacro with-sexp-dispatchers (() &body body)
+  `(let ((*dispatchers* +sexp-dispatchers+))
+     ,@body))
+
+(defun example-sexp-parser (string &optional (regex #?r"^(?<sexp>)$"))
+  (with-sexp-dispatchers ()
+    (regex-recursive-groups regex string)))
 
