@@ -21,12 +21,15 @@
   :version "0.1"
   :components ((:module :tests
 			:serial t
-			:components ((:file "rec-regex"))))
+			:components ((:file "rec-regex")
+                                     (:file "sexp"))))
   :depends-on (:recursive-regex :lisp-unit))
 
 (defmethod asdf:perform ((o asdf:test-op) (c (eql (find-system :recursive-regex))))
   (asdf:oos 'asdf:load-op :recursive-regex-test)
-  (let ((*package* (find-package :recursive-regex-test)))
+  (let ((*package* (find-package :rec-regex-test)))
+    (eval (read-from-string "(run-tests)")))
+  (let ((*package* (find-package :recex.sexp)))
     (eval (read-from-string "(run-tests)"))))
 
 ;; Copyright (c) 2011 Russ Tyndall , Acceleration.net http://www.acceleration.net

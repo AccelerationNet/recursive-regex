@@ -1,6 +1,6 @@
 (cl:defpackage :rec-regex-test
   (:use :cl :cl-user :iterate :anaphora :rec-regex :lisp-unit)
-  (:export))
+  (:export :find-node :find-nodes))
 
 (in-package :rec-regex-test)
 (cl-interpol:enable-interpol-syntax)

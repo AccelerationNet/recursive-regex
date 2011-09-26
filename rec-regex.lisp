@@ -16,6 +16,24 @@
 (defparameter *dispatchers* nil)
 (defvar *body-regex* nil )
 (defvar *uncompiled-br*  nil)
+(defvar *trace-parse* nil)
+(defvar *trace-depth* 0)
+
+(defmacro def-traced-matcher-lambda ((pos-name name &rest rest-tracing) &body body)
+  (alexandria:with-unique-names (res)
+    `(lambda (,pos-name)
+      (let ((*trace-depth* *trace-depth*))
+        (incf *trace-depth* 2)
+        (let* ((,res (multiple-value-list (progn ,@body)))
+               (*print-pretty* *trace-parse*))
+          (when *trace-parse*
+            (terpri *trace-output*)
+            (iter (for i below *trace-depth*) (write-char #\space *trace-output*))
+            (format *trace-output* "~A (~A-~A) ~S ~@{~A~^ ~}"
+                    ,name ,pos-name (first ,res)
+                    (subseq cl-ppcre::*string* ,pos-name (first ,res))
+                    ,@rest-tracing))
+          (apply #'values ,res))))))
 
 (define-condition inner-match ()
   ((data :accessor data :initarg :data :initform nil)))
@@ -33,7 +51,7 @@
 	      :displaced-to array
 	      :displaced-index-offset start))
 
-(defclass result-node () 
+(defclass result-node ()
   ((name :accessor name :initarg :name :initform nil)
    (start :accessor start :initarg :start :initform nil)
    (end :accessor end :initarg :end :initform nil)
@@ -97,10 +115,18 @@
 
 (defun devoid (regex) (if (eql :void regex) nil regex))
 (defun convert-to-full-match (regex)
-  (awhen (devoid regex)
-    ;;it
-    `(:SEQUENCE :START-ANCHOR ,it :END-ANCHOR)
-    ))
+  (typecase regex
+    (function regex) ;; presumably already did what was required :/
+    (string (convert-to-full-match
+             (let ((cl-ppcre:*allow-named-registers* T))
+               (cl-ppcre:parse-string regex))))
+    (T
+     (awhen (devoid regex)
+       ;; really we dont care that it match the whole thing only that if it does match
+       ;; it starts at the next character
+       `(:SEQUENCE :START-ANCHOR ,it ;;:END-ANCHOR
+         )
+       ))))
 
 (defun make-matched-pair-matcher (name open-char close-char
 				  &optional (escape nil))
@@ -110,9 +136,9 @@
     (setf body-regex (when br
                        (create-recursive-scanner
 			`(:NAMED-REGISTER "body" ,br))))
-    (lambda (pos)
+    (def-traced-matcher-lambda (pos name)
       (let ((*body-regex* nil)
-	      ;; because we compiled it into a default body above
+            ;; because we compiled it into a default body above
             (*uncompiled-br* `(:NAMED-REGISTER "body" ,br))
             (name (symbol-munger:english->keyword #?"matched ${name}"))
             fail
@@ -126,9 +152,9 @@
 	      (incf escape-cnt)
 	      (setf escape-cnt 0))
 	  (for not-escaped? =
-	       (or (null escape) ;; dont have an escape-char
-		   (evenp escape-cnt) ;; zero escapes, escaped-escape, etc
-		   ))
+           (or (null escape)      ;; dont have an escape-char
+               (evenp escape-cnt) ;; zero escapes, escaped-escape, etc
+               ))
           ;; we dont match the open char so fail
           (when (and (first-iteration-p)
                      (not (eql c open-char)))
@@ -166,16 +192,17 @@
 		   ;; our body didnt match so we must fail
                    (T fail))))))
           (incf pos)
-        )))))
+          )))))
 
 (defun make-named-regex-matcher (name named-regex)
   "Handles matching by delegating to another named regular expression"
   (lambda (body-regex
-      &aux (br (convert-to-full-match body-regex)))
+      &aux (br (convert-to-full-match body-regex))
+      (nr (convert-to-full-match named-regex)))
     (setf body-regex (when br (create-recursive-scanner br)))
-    (setf named-regex (create-recursive-scanner named-regex))
+    (setf named-regex (create-recursive-scanner nr))
     (setf name (symbol-munger:english->keyword name))
-    (lambda (pos)
+    (def-traced-matcher-lambda (pos name (or nr br))
       (let ((*body-regex* body-regex)
             (*uncompiled-br* br))
         (let* ((results (%collect-groups-to-tree
@@ -191,7 +218,7 @@
       &aux (br (convert-to-full-match default-body-regex)))
     ;; handle default body regex (if one is not provided)
     (setf default-body-regex (create-recursive-scanner br))
-    (lambda (pos)
+    (def-traced-matcher-lambda (pos name)
       (awhen (or *body-regex* default-body-regex)
         (let* ((*uncompiled-br* (or *uncompiled-br* br))
                (results
@@ -242,7 +269,7 @@
   "Whenever we meet a named group, change it to a named dispatcher
    if we find it in the list we use that matcher, otherwise we use
    a body matcher."
-  (lambda (pos)
+  (def-traced-matcher-lambda (pos "dispatcher" name)
     (let ((fn (aif (cdr (assoc name function-table :test #'string-equal))
 		   it
 		   (make-body-matcher))))
@@ -304,34 +331,4 @@
       (%collect-groups-to-tree :root scanner target))
     (values (first res) (treeify-regex-results (first res)))))
 
-(defparameter +sexp-dispatchers+
-  (let ((*dispatchers*))
-    (clear-dispatchers)
-    (add-body-matcher "body")
-    (add-matched-pair-matcher "parens" #\( #\))
-    (add-matched-pair-matcher "string" #\" #\" #\\ )
-    (add-matched-pair-matcher "symbol-bars" #\| #\| #\\ )
-    (add-named-regex-matcher "prefix" #?r"(?:'|`|#)")
-    (add-named-regex-matcher
-     "name" #?r"(?i)(?:\d|\w|_|-|\+|=|\*|&|\^|%|\$|@|!)+")
-    (add-named-regex-matcher
-     ;; TODO: It would be cooler if this worked irrespective of order
-     "atom" #?r"(?:(?<string>)|(?<symbol-bars>)|(?<name>))")
-    (add-named-regex-matcher
-     "sexp-list" #?r"\s*(?:(?<sexp>)\s+)*(?<sexp>)\s*")
-
-    (add-named-regex-matcher
-     "less-sexp" #?r"(?<parens>^(?<sexp-list>)?$)|(?<atom>)")
-    
-    (add-named-regex-matcher
-     "sexp" #?r"(?<less-sexp>)|(?<prefix>)(?<sexp>)")
-    *dispatchers*))
-
-(defmacro with-sexp-dispatchers (() &body body)
-  `(let ((*dispatchers* +sexp-dispatchers+))
-     ,@body))
-
-(defun example-sexp-parser (string &optional (regex #?r"^(?<sexp>)$"))
-  (with-sexp-dispatchers ()
-    (regex-recursive-groups regex string)))
 
