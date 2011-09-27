@@ -16,9 +16,18 @@ return a (parse) tree of results.
    rather than the last match only (full parse tree of results, 
    based on the named dispatchers)
 
+ * Easy to expand your extant regular expressions to return better
+   results (ie, I don't need to replce cl-ppcre with some parse, I 
+   can just keep using cl-ppcre)
+
 ## Some disadvantages of this approach
 
  * Currently doesnt support a streaming interface
+
+ * Not as well founded theoretically as other parser kits (ie: there are
+   no reduce-reduce errors flagged.)
+
+ * Not tested or optimized for performance.
 
 ## Minor Example:
 ```
@@ -59,6 +68,18 @@ with.
         (?<comma-list>((?<double-quotes>)|[^\n,]*))(?:\n|$)
         calls the comma-list matcher passing in the body
         double-quotes-matcher or not new line or comma repeating
+
+## Recursive Regular Expressions Elsewhere
+I'm obviously not the first person to think this idea would be neat
+
+ * Balanced capture groups
+  * (This blog post talks about balanced expressions available in .net)[http://blog.stevenlevithan.com/archives/balancing-groups]
+  * (Perl Docs for balanced capture groups)[http://perldoc.perl.org/perlre.html#%28?PARNO%29-%28?-PARNO%29-%28?+PARNO%29-%28?R%29-%28?0%29]
+
+ * Perl, leading the way in hackery as ever has a couple of different
+   ways to embed regexps' recursively
+  * (A blog post discussing embedding a PERL regexp inside its own definition)[http://www.catonmat.net/blog/recursive-regular-expressions/]
+  * (Perl recursive patterns)[http://search.cpan.org/~rgarcia/perl/pod/perl595delta.pod#Regular_expressions]
 
 ```
 ;; Copyright (c) 2011 Russ Tyndall, 
