@@ -43,25 +43,54 @@
     (regex-recursive-groups regex string)))
 
 
-(lisp-unit:define-test test-basics.atom
+(deftest test-basics.atom
   (let* ((res (sexp-parser "a-symbol"))
         (name (full-match (find-node res :name))))
     (assert-equal "a-symbol" name)))
 
-(lisp-unit:define-test test-basics.quoted-atom
+(deftest test-basics.quoted-atom
   (let* ((res (sexp-parser "'a-symbol"))
          (prefix (full-match (find-node res :prefix)))
          (name (full-match (find-node res :name))))
     (assert-equal "'" prefix)
     (assert-equal "a-symbol" name)))
 
-(lisp-unit:define-test test-basics.listed-atom
+(deftest test-basics.sharp-quoted-atom
+  (let* ((res (sexp-parser "#'a-symbol"))
+         (prefixes (find-nodes res :prefix))
+         (name (full-match (find-node res :name))))
+    (assert-equal 2 (length prefixes))
+    (assert-equal "#" (full-match (first prefixes)))
+    (assert-equal "'" (full-match (second prefixes)))
+    (assert-equal "a-symbol" name)))
+
+(deftest test-basics.list-of-atoms
+  (let* ((res (sexp-parser "(atom1 atom2 atom3)"))
+         (atoms (mapcar #'full-match (find-nodes res :atom))))
+    (assert-equal '("atom1" "atom2" "atom3")  atoms)))
+
+(deftest test-basics.list-of-quoted-atoms
+  (let* ((res (sexp-parser "('atom1 #'atom2 'atom3)"))
+         (prefixes (mapcar #'full-match (find-nodes res :prefix)))
+         (atoms (mapcar #'full-match (find-nodes res :atom))))
+    (assert-equal '("'" "#" "'" "'")  prefixes)
+    (assert-equal '("atom1" "atom2" "atom3")  atoms)))
+
+(deftest test-basics.list-of-lists-of-atoms
+  (let* ((res (sexp-parser "((atom1 atom2 atom3) (atom4 atom5 atom6) (atom7 atom8 atom9) )"))
+         (sexp-lists (find-nodes res :sexp-lists))
+         (atoms (mapcar #'full-match (find-nodes res :atom))))
+    (assert-equal '("atom1" "atom2" "atom3" "atom4" "atom5"
+                    "atom6" "atom7" "atom8" "atom9")  atoms)
+    ))
+
+(deftest test-basics.listed-atom
   (let* ((res (sexp-parser "(a-symbol)"))
          (parens (find-node res :matched-parens))
          (body-match (full-match (first (kids parens)))))
     (assert-equal body-match "a-symbol")))
 
-(lisp-unit:define-test test-basics.listed-quoted-atom
+(deftest test-basics.listed-quoted-atom
   (let* ((res (sexp-parser "('a-symbol)"))
          (parens (find-node res :matched-parens))
          (body-match (full-match (first (kids parens))))
@@ -69,7 +98,7 @@
     (assert-equal body-match "'a-symbol")
     (assert-equal name "a-symbol")))
 
-(lisp-unit:define-test test-basics.quoted-listed-atom
+(deftest test-basics.quoted-listed-atom
   (let* ((res (sexp-parser "'(a-symbol)"))
          (first-sexp (first (kids res)))
          (prefix-match (full-match (find-node res :prefix)))
