@@ -73,13 +73,13 @@ with.
 I'm obviously not the first person to think this idea would be neat
 
  * Balanced capture groups
-  * (This blog post talks about balanced expressions available in .net)[http://blog.stevenlevithan.com/archives/balancing-groups]
-  * (Perl Docs for balanced capture groups)[http://perldoc.perl.org/perlre.html#%28?PARNO%29-%28?-PARNO%29-%28?+PARNO%29-%28?R%29-%28?0%29]
+  * [This blog post talks about balanced expressions available in .net](http://blog.stevenlevithan.com/archives/balancing-groups)
+  * [Perl Docs for balanced capture groups](http://perldoc.perl.org/perlre.html#%28?PARNO%29-%28?-PARNO%29-%28?+PARNO%29-%28?R%29-%28?0%29)
 
  * Perl, leading the way in hackery as ever has a couple of different
    ways to embed regexps' recursively
-  * (A blog post discussing embedding a PERL regexp inside its own definition)[http://www.catonmat.net/blog/recursive-regular-expressions/]
-  * (Perl recursive patterns)[http://search.cpan.org/~rgarcia/perl/pod/perl595delta.pod#Regular_expressions]
+  * [A blog post discussing embedding a PERL regexp inside its own definition](http://www.catonmat.net/blog/recursive-regular-expressions/)
+  * [Perl recursive patterns](http://search.cpan.org/~rgarcia/perl/pod/perl595delta.pod#Regular_expressions
 
 ```
 ;; Copyright (c) 2011 Russ Tyndall, 
