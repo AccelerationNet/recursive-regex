@@ -25,7 +25,7 @@ return a (parse) tree of results.
  * Currently doesnt support a streaming interface
 
  * Not as well founded theoretically as other parser kits (ie: there are
-   no reduce-reduce errors flagged.)
+   no shift/reduce or reduce/reduce errors flagged)
 
  * Not tested or optimized for performance.
 
