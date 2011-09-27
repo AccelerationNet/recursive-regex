@@ -79,7 +79,7 @@ I'm obviously not the first person to think this idea would be neat
  * Perl, leading the way in hackery as ever has a couple of different
    ways to embed regexps' recursively
   * [A blog post discussing embedding a PERL regexp inside its own definition](http://www.catonmat.net/blog/recursive-regular-expressions/)
-  * [Perl recursive patterns](http://search.cpan.org/~rgarcia/perl/pod/perl595delta.pod#Regular_expressions
+  * [Perl recursive patterns](http://search.cpan.org/~rgarcia/perl/pod/perl595delta.pod#Regular_expressions)
 
 ```
 ;; Copyright (c) 2011 Russ Tyndall, 
