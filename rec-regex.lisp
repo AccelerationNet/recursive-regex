@@ -120,14 +120,19 @@
 	(when (and start end)
 	  (collect (make-displaced-array target start end) into groups))
 	(finally
-         (cond ((and *minimize-results*
-                     (= 1 (length children)))
+         ;; remove backtracked nodes, if any of the children
+         ;; start their match after our full match they, must
+         ;; have been backtracked passed
+         (setf children
+               (iter
+                 (with end-of-match = (second results))
+                 (for k in (nreverse children))
+                 (unless (>= (start k) end-of-match)
+                   (collect k))))
+         (cond ((and *minimize-results* (= 1 (length children)))
                 (inner-match (first children)))
-               (T
-                (let ((n (result-node
-                          name s e match groups
-                          (nreverse children))))
-                  (inner-match n))))))
+               (T (let ((n (result-node name s e match groups children)))
+                    (inner-match n))))))
       results)))
 
 (defun devoid (regex) (if (eql :void regex) nil regex))

@@ -82,6 +82,13 @@ multiline", data|)
     (assert-equal "\"quo\\\"ted\"" quote-body)
     (assert-true res)))
 
+(deftest backtracking-match-removal
+  (let* ((res (regex-recursive-groups
+	       #?r"(?<double-quotes>)((?<single-quotes>)test)?"
+	       "\"some-double-quotes\"''not-matching" ))
+	 (quote-body (full-match (first (kids res)))))
+    (assert-false (find-nodes res :MATCHED-SINGLE-QUOTES))))
+
 (deftest double-quotes-escaped-escape
   (let* ((res (regex-recursive-groups
 	      #?r"(?<double-quotes>)"

@@ -32,6 +32,8 @@
   (let ((*package* (find-package :rec-regex-test)))
     (eval (read-from-string "(run-tests)")))
   (let ((*package* (find-package :recex.sexp)))
+    (eval (read-from-string "(run-tests)")))
+  (let ((*package* (find-package :recursive-regex.rex-test)))
     (eval (read-from-string "(run-tests)"))))
 
 ;; Copyright (c) 2011 Russ Tyndall , Acceleration.net http://www.acceleration.net
