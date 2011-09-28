@@ -101,8 +101,9 @@
     ,@body))
 
 (defun %collect-groups-to-tree (name scanner target
-				&optional (start 0) (end (length target))
-				&aux (children (list)))
+                                     &optional (start 0) (end (length target))
+                                     outer-match-start outer-match-end
+                                     &aux (children (list)))
   (let* ( ;; TODO: Bind these to the appropriate length
 	 (cl-ppcre::*reg-starts* #(nil nil nil nil nil nil))
 	 (cl-ppcre::*reg-ends* #(nil nil nil nil nil nil))
@@ -123,16 +124,24 @@
          ;; remove backtracked nodes, if any of the children
          ;; start their match after our full match they, must
          ;; have been backtracked passed
-         (setf children
-               (iter
-                 (with end-of-match = (second results))
-                 (for k in (nreverse children))
-                 (unless (>= (start k) end-of-match)
-                   (collect k))))
-         (cond ((and *minimize-results* (= 1 (length children)))
-                (inner-match (first children)))
-               (T (let ((n (result-node name s e match groups children)))
-                    (inner-match n))))))
+         (let ((start-of-match (first results))
+               (end-of-match (second results)))
+           (setf children
+                 (iter
+                   (for k in (nreverse children))
+                   (unless (>= (start k) end-of-match)
+                     (collect k))))
+           (cond ((and *minimize-results* (= 1 (length children))
+                       (awhen (first children)
+                         (and (eql (start it) (or outer-match-start start-of-match))
+                              (eql (end it) (or outer-match-end end-of-match)))))
+                  (inner-match (first children)))
+                 (T (let ((n (result-node
+                              name
+                              (or outer-match-start s)
+                              (or outer-match-end e)
+                              match groups children)))
+                      (inner-match n)))))))
       results)))
 
 (defun devoid (regex) (if (eql :void regex) nil regex))
@@ -216,7 +225,8 @@
                                    (end me) match-end
                                    (full-match me) match))))
 		      (%collect-groups-to-tree
-		       name body-regex cl-ppcre::*string* (+ 1 start) pos))
+		       name body-regex cl-ppcre::*string* (+ 1 start) pos
+                       start match-end))
                     (return match-end))
 		   ;; our body didnt match so we must fail
                    (T fail))))))

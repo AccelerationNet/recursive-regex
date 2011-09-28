@@ -78,36 +78,34 @@ multiline", data|)
   (let* ((res (regex-recursive-groups
 	       #?r"(?<double-quotes>)"
 	       "this string has a \"quo\\\"ted\" sub phrase" ))
-	 (quote-body (full-match (first (kids res)))))
+	 (quote-body (full-match (find-node res :matched-double-quotes))))
     (assert-equal "\"quo\\\"ted\"" quote-body)
     (assert-true res)))
 
 (deftest backtracking-match-removal
   (let* ((res (regex-recursive-groups
 	       #?r"(?<double-quotes>)((?<single-quotes>)test)?"
-	       "\"some-double-quotes\"''not-matching" ))
-	 (quote-body (full-match (first (kids res)))))
+	       "\"some-double-quotes\"''not-matching" )))
     (assert-false (find-nodes res :MATCHED-SINGLE-QUOTES))))
 
 (deftest double-quotes-escaped-escape
   (let* ((res (regex-recursive-groups
-	      #?r"(?<double-quotes>)"
-	      "this string has a \"quo\\\\\"ted\" sub phrase" ))
-	(quote-body (full-match (first (kids res)))))
+               #?r"(?<double-quotes>)"
+               "this string has a \"quo\\\\\"ted\" sub phrase" ))
+         (quote-body (full-match (find-node res :matched-double-quotes))))
     (assert-true (string-equal "\"quo\\\\\"" quote-body)
-		  quote-body "shouldn't count escaped escapes")
+     quote-body "shouldn't count escaped escapes")
     (assert-true res)))
 
 (deftest csv-file
   (let* ((res (regex-recursive-groups
 	       #?r"(?<csv-file>)"
 	       *test-csv*))
-	 (rows (find-nodes res :csv-row))
-	 (commas (find-node (first rows) :comma-list))
-	 (row1 (iter (for k in (kids commas))
+	 (commas (find-nodes res :comma-list))
+	 (row1 (iter (for k in (kids (first commas)))
 		     (collect (full-match k)))))
     
-    (assert-eql 3 (length rows) "extra empty row...")
+    (assert-eql 2 (length commas) "two rows of results")
     (assert-equalp '("this" "is" "a" "\"test
 of
 multiline\"" "data") row1)
