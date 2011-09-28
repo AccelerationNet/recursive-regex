@@ -105,7 +105,7 @@ is replaced with replacement. [FROM http://cl-cookbook.sourceforge.net/strings.h
           done-with-defs?
           (cl-ppcre:*allow-named-registers* t))
   (iter (for line in-file file using #'trimmed-readline)
-    (unless line (next-iteration))
+    (unless line (next-iteration)) ;; got an empty line
     ;; look for the options ci mark
     (when (option-ci? line)
       (setf ci? T)
@@ -116,11 +116,9 @@ is replaced with replacement. [FROM http://cl-cookbook.sourceforge.net/strings.h
       (next-iteration))
 
     (for (name regex) = (cl-ppcre:split +production-split+ line :limit 2))
-    ;; (break "~S~%~S   =>  ~S" line name regex)
     (cond
       (done-with-defs? ;; making name-regex-matchers now
        (let ((regex (handle-quoted-rules (process-rex-regex regex defs))))
-         ;; (break "~S~%~S   =>  ~S" line name regex)
          (add-named-regex-matcher name regex)))
       ;;new def
       (t (process-rex-def name regex defs)))

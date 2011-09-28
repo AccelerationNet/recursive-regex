@@ -45,7 +45,6 @@
   (with-sexp-dispatchers ()
     (regex-recursive-groups regex string)))
 
-
 (deftest sexp.atom
   (let* ((res (sexp-parser "a-symbol"))
         (name (full-match (find-node res :name))))
