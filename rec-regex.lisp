@@ -18,6 +18,7 @@
 (defvar *uncompiled-br*  nil)
 (defvar *trace-parse* nil)
 (defvar *trace-depth* 0)
+(defvar *minimize-results* T)
 
 (defmacro tracer (&rest args)
   ;; theoretically a touch faster than just using %tracer
@@ -29,9 +30,8 @@
                  (and (numberp *trace-parse*)
                       (numberp level)
                       (>= *trace-parse* level))))
-    (terpri *trace-output*)
-    (iter (for i below *trace-depth*) (write-char #\space *trace-output*))
-    (format *trace-output* "~A ~A (~A-~A) ~S ~{~s~^ ~}"
+    (format *trace-output* "~&~vT~A ~A (~A-~A) ~S ~{~s~^ ~}"
+            *trace-depth*
             label name pos match-end
             (when (and pos match-end)
               (subseq cl-ppcre::*string* pos match-end))
@@ -120,10 +120,14 @@
 	(when (and start end)
 	  (collect (make-displaced-array target start end) into groups))
 	(finally
-	 (let ((n (result-node
-		   name s e match groups
-		   (nreverse children))))
-           (inner-match n))))
+         (cond ((and *minimize-results*
+                     (= 1 (length children)))
+                (inner-match (first children)))
+               (T
+                (let ((n (result-node
+                          name s e match groups
+                          (nreverse children))))
+                  (inner-match n))))))
       results)))
 
 (defun devoid (regex) (if (eql :void regex) nil regex))
@@ -298,9 +302,14 @@
            (fn (or dispatch
                    (dispatch-fn "body" function-table)
                    (make-body-matcher))))
-      (tracer "dispatching" name pos nil :data (list name dispatch) :level 2)
+      (tracer "dispatching" name pos nil :data (list name :dispatcher dispatch) :level 2)
       ;; (break "Dispatch: ~A ~A ~A ~A" pos name body-regex fn)
-      (funcall (funcall fn body-regex) pos))))
+      (handler-bind ((inner-match
+                       (lambda (c &aux (n (data c)))
+                         (when (and *minimize-results* (eql :body (name n)))
+                           (setf (name n) (symbol-munger:english->keyword name)))
+                         )))
+        (funcall (funcall fn body-regex) pos)))))
 
 (defun create-recursive-scanner
     (regex &optional (function-table *dispatchers*)
