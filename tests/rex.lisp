@@ -1,50 +1,50 @@
-(cl:defpackage :recursive-regex.sexp-parser
-    (:nicknames :recex.sexp)
+(cl:defpackage :recursive-regex.rex-test
+    (:nicknames :rex-test)
   (:use :cl :cl-user :iterate :anaphora :recex :lisp-unit :rec-regex-test)
+  (:shadowing-import-from
+   :recex :unescaped-quote-pos :handle-quoted-rules :read-rex-file-to-dispatchers)
   (:export  ))
 
-(in-package :recex.sexp)
-
+(in-package :rex-test)
 (cl-interpol:enable-interpol-syntax)
 
-(defun sexp-dispatchers ()
+(deftest rex-unescaped-quote-pos
+  (assert-false (unescaped-quote-pos "a tough find" 0))
+  (assert-eql 8 (unescaped-quote-pos "a tough \"find" 0))
+  (assert-false (unescaped-quote-pos "a tough \\\"find" 0))
+  (assert-eql 10 (unescaped-quote-pos "a tough \\\\\"find" 0))
+  (assert-eql 13 (unescaped-quote-pos "a tough \"find\"" 9)))
+
+(deftest test-handle-quoted-rules
+  (assert-equal
+      `(:sequence :start-anchor "test")
+      (handle-quoted-rules "\"test\""))
+  (assert-equal
+      `(:SEQUENCE :START-ANCHOR (:GREEDY-REPETITION 0 NIL :EVERYTHING) "test"
+        (:CHAR-CLASS (:RANGE #\A #\Z)))
+      (handle-quoted-rules ".*\"test\"[A-Z]")))
+
+(defparameter +csv-rex+
+  (asdf:system-relative-pathname :recursive-regex "tests/csv.rex"))
+(defparameter +sexp-rex+
+  (asdf:system-relative-pathname :recursive-regex "tests/sexp.rex"))
+
+(defun sexp-dispatchers-from-rex ()
   (let ((recex::*dispatchers*))
     (clear-dispatchers)
     (add-body-matcher "body")
     (add-matched-pair-matcher "parens" #\( #\))
     (add-matched-pair-matcher "string" #\" #\" #\\ )
     (add-matched-pair-matcher "symbol-bars" #\| #\| #\\ )
-    (add-named-regex-matcher "prefix" #?r"(?:'|`|#)")
-    (add-named-regex-matcher
-     "name" #?r"(?i)(?:\d|\w|_|-|\+|=|\*|&|\^|%|\$|@|!)+")
-    (add-named-regex-matcher
-     ;; TODO: It would be cooler if this worked irrespective of order
-     "atom" #?r"(?:(?<string>)|(?<symbol-bars>)|(?<name>))")
-    (add-named-regex-matcher
-     "sexp-list" #?r"\s*(?:(?<sexp>)\s+)*(?<sexp>)\s*")
-
-    (add-named-regex-matcher
-     "less-sexp" #?r"(?<parens>(?<sexp-list>)?)|(?<atom>)")
-
-    (add-named-regex-matcher
-     "sexp" #?r"(?<prefix>)(?<sexp>)|(?<less-sexp>)")
+    (read-rex-file-to-dispatchers +sexp-rex+)
     recex::*dispatchers*))
 
-(defparameter +sexp-dispatchers+
-  (sexp-dispatchers))
-
-(defmacro with-sexp-dispatchers (() &body body)
-  `(let ((recex::*dispatchers* +sexp-dispatchers+))
-     ,@body))
-
-(defun make-sexp-parser(string &optional (regex #?r"^(?<sexp>)$"))
-  (with-sexp-dispatchers ()
-    (recex::create-recursive-scanner regex string)))
+(defparameter +rex-sexp-parser-dispatchers+
+  (sexp-dispatchers-from-rex))
 
 (defun sexp-parser (string &optional (regex #?r"^(?<sexp>)$"))
-  (with-sexp-dispatchers ()
+  (let ((recex::*dispatchers* +rex-sexp-parser-dispatchers+))
     (regex-recursive-groups regex string)))
-
 
 (deftest sexp.atom
   (let* ((res (sexp-parser "a-symbol"))

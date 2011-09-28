@@ -1,4 +1,5 @@
-(cl:defpackage :rec-regex-test
+(cl:defpackage :recursive-regex-test
+  (:nicknames :recex-test :rec-regex-test)
   (:use :cl :cl-user :iterate :anaphora :rec-regex :lisp-unit)
   (:export :find-node :find-nodes :deftest))
 

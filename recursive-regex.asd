@@ -11,7 +11,8 @@
   :description "Recursive regular expression parsing engine"
   :licence "BSD"
   :version "0.1"
-  :components ((:file "rec-regex"))
+  :components ((:file "rec-regex")
+               (:file "rex-reader"))
   :depends-on (:iterate :anaphora :cl-interpol :cl-ppcre
 			:alexandria :symbol-munger))
 
@@ -22,7 +23,8 @@
   :components ((:module :tests
 			:serial t
 			:components ((:file "rec-regex")
-                                     (:file "sexp"))))
+                                     (:file "sexp")
+                                     (:file "rex"))))
   :depends-on (:recursive-regex :lisp-unit))
 
 (defmethod asdf:perform ((o asdf:test-op) (c (eql (find-system :recursive-regex))))
