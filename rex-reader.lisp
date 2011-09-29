@@ -8,6 +8,7 @@
 ;;;;
 ;;;; named matchers are separated from declared names by %%
 ;;;;
+;;;; see example sexp parser in test/sexp.rex
 
 (defparameter +option+ #?r"%option\s")
 (defparameter +option-case-insensitive+ #?r"%option\scase-insensitive")
@@ -16,6 +17,7 @@
 
 
 (defun trimmed-readline (stream &optional (eof-error-p t) eof-value recursive-p)
+  "read a line and trim it, if it is empty return nil instead of empty string"
   (let ((l (read-line stream eof-error-p eof-value recursive-p)))
     (typecase l
       (string
@@ -56,7 +58,7 @@ is replaced with replacement. [FROM http://cl-cookbook.sourceforge.net/strings.h
             (setf start (+ 1 idx)))))))
 
 (defun handle-quoted-rules (regex &aux idx idx2 (start 0))
-  "quotes in rex productions should be direct string matches"
+  "quotes in rex productions should be direct string matches (not regex)"
   (macrolet ((collect-parsed (regex idx1 &optional idx2)
                (alexandria:with-unique-names (subr)
                  `(let ((,subr (subseq ,regex ,idx1 ,idx2)))
@@ -81,22 +83,21 @@ is replaced with replacement. [FROM http://cl-cookbook.sourceforge.net/strings.h
 (defun end-of-defs? (line) (cl-ppcre:scan +end-of-defs+ line))
 
 (defun replace-expansions (defs new-regex)
+  "If we encounter {name} style definitions in the right hand side
+   replace them with their text (regex fragment) value"
   (iter (for (k v) in-hashtable defs)
 	(setf new-regex
 	      (replace-all
 	       new-regex (format nil "{~A}" k) v )))
   new-regex)
 
-(defun process-rex-regex (regex defs)
-  (replace-expansions defs regex))
 
 (defun process-rex-def (name regex defs)
   (when (gethash name defs) (error "~A already defined" name))
-  (setf regex (process-rex-regex regex defs))
-  (handler-case (cl-ppcre:parse-string regex) ;; already parsed so this will fail
+  (setf regex (replace-expansions defs regex))
+  ;; check that we created a valid regex
+  (handler-case (cl-ppcre:parse-string regex)
     (error () (error "Error creating def: ~A~%   couldnt parse: ~s" name regex)))
-  ;(handler-case (cl-ppcre:create-scanner regex)
-  ;  (error () (error "Error creating def: ~A~%   couldnt create: ~s" name regex)))
   (setf (gethash name defs) regex))
 
 (defun read-rex-file-to-dispatchers
@@ -104,6 +105,10 @@ is replaced with replacement. [FROM http://cl-cookbook.sourceforge.net/strings.h
           (defs (make-hash-table :test 'equalp))
           done-with-defs?
           (cl-ppcre:*allow-named-registers* t))
+  "reads a set of definitions in from a rex file, calls
+   add-named-regex-matcher for each production
+      name => regex
+  "
   (iter (for line in-file file using #'trimmed-readline)
     (unless line (next-iteration)) ;; got an empty line
     ;; look for the options ci mark
@@ -118,7 +123,7 @@ is replaced with replacement. [FROM http://cl-cookbook.sourceforge.net/strings.h
     (for (name regex) = (cl-ppcre:split +production-split+ line :limit 2))
     (cond
       (done-with-defs? ;; making name-regex-matchers now
-       (let ((regex (handle-quoted-rules (process-rex-regex regex defs))))
+       (let ((regex (handle-quoted-rules (replace-expansions defs regex))))
          (add-named-regex-matcher name regex)))
       ;;new def
       (t (process-rex-def name regex defs)))
