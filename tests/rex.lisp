@@ -69,20 +69,20 @@
 
 (deftest sexp.list-of-atoms
   (let* ((res (sexp-parser "(atom1 atom2 atom3)"))
-         (atoms (mapcar #'full-match (find-nodes res :atom))))
+         (atoms (mapcar #'full-match (find-nodes res :name))))
     (assert-equal '("atom1" "atom2" "atom3")  atoms)))
 
 (deftest sexp.list-of-quoted-atoms
   (let* ((res (sexp-parser "('atom1 #'atom2 'atom3)"))
          (prefixes (mapcar #'full-match (find-nodes res :prefix)))
-         (atoms (mapcar #'full-match (find-nodes res :atom))))
+         (atoms (mapcar #'full-match (find-nodes res :name))))
     (assert-equal '("'" "#" "'" "'")  prefixes)
     (assert-equal '("atom1" "atom2" "atom3")  atoms)))
 
 (deftest sexp.list-of-lists-of-atoms
   (let* ((res (sexp-parser "((atom1 atom2 atom3) (atom4 atom5 atom6) (atom7 atom8 atom9) )"))
          (sexp-lists (find-nodes res :sexp-lists))
-         (atoms (mapcar #'full-match (find-nodes res :atom))))
+         (atoms (mapcar #'full-match (find-nodes res :name))))
     (assert-equal '("atom1" "atom2" "atom3" "atom4" "atom5"
                     "atom6" "atom7" "atom8" "atom9")  atoms)
     ))
@@ -102,13 +102,9 @@
     (assert-equal name "a-symbol")))
 
 (deftest sexp.quoted-listed-atom
-  (let* ((res (sexp-parser "'(a-symbol)"))
-         (first-sexp (first (kids res)))
-         (prefix-match (full-match (find-node res :prefix)))
-         (parens (find-node res :matched-parens))
-         (body-match (full-match (first (kids parens)))))
-    (assert-eql 2 (length (kids first-sexp)))
-    (assert-eql :prefix (name (first (kids first-sexp))))
-    (assert-eql :sexp (name (second (kids first-sexp))))
-    (assert-equal prefix-match "'")
-    (assert-equal body-match "a-symbol")))
+  (let* ((res (recex:treeify-regex-results (sexp-parser "'(a-symbol)"))))
+    (assert-equal
+        `(:SEXP "'(a-symbol)" (:PREFIX "'")
+          (:MATCHED-PARENS "(a-symbol)" (:NAME "a-symbol")))
+        res)
+    ))

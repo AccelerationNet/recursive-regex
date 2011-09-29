@@ -101,12 +101,9 @@
     (assert-equal name "a-symbol")))
 
 (deftest sexp.quoted-listed-atom
-  (let* ((res (sexp-parser "'(a-symbol)"))
-         (first-sexp (first (kids res)))
-         (prefix-match (full-match (find-node res :prefix)))
-         (body-match (full-match (find-node res :name))))
-    (assert-eql 3 (length (kids res)))
-    (assert-eql :prefix (name (first (kids res))))
-    (assert-eql :MATCHED-PARENS (name (second (kids res))))
-    (assert-equal prefix-match "'")
-    (assert-equal body-match "a-symbol")))
+  (let* ((res (recex:treeify-regex-results (sexp-parser "'(a-symbol)"))))
+    (assert-equal
+        `(:SEXP "'(a-symbol)" (:PREFIX "'")
+          (:MATCHED-PARENS "(a-symbol)" (:NAME "a-symbol")))
+        res)
+    ))
