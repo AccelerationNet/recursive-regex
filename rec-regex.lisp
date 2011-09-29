@@ -7,7 +7,9 @@
 	   :add-body-matcher
 	   :add-named-regex-matcher
 	   :add-matched-pair-matcher
-	   :clear-dispatchers ))
+	   :clear-dispatchers
+           :read-rex-file-to-dispatchers
+           :*dispatchers*))
 
 (in-package :rec-regex)
 (cl-interpol:enable-interpol-syntax)
@@ -72,9 +74,11 @@
    (groups :accessor groups :initarg :groups :initform nil)
    (kids :accessor kids :initarg :kids :initform nil)))
 
-(defun result-node (name start end full-match &optional groups kids)
-  (make-instance 'result-node :name name :start start :end end
-                              :full-match full-match :groups groups :kids kids))
+(defun result-node (name start end &optional (target cl-ppcre::*string*) groups kids )
+  (make-instance
+   'result-node :name name :start start :end end
+   :full-match (make-displaced-array target start end)
+   :groups groups :kids kids))
 
 (defmethod print-object ((o result-node) s)
   (print-unreadable-object (o s :type t :identity t)
@@ -115,7 +119,6 @@
     (when success?
       (iter
 	(with (s e group-starts group-ends) = results)
-	(with match = (make-displaced-array target s e))
 	(for start in-vector group-starts)
 	(for end in-vector group-ends)
 	(when (and start end)
@@ -124,23 +127,24 @@
          ;; remove backtracked nodes, if any of the children
          ;; start their match after our full match they, must
          ;; have been backtracked passed
-         (let ((start-of-match (first results))
-               (end-of-match (second results)))
+         (let ((outer-start (or outer-match-start s))
+               (outer-end (or outer-match-end e)))
            (setf children
                  (iter
                    (for k in (nreverse children))
-                   (unless (>= (start k) end-of-match)
+                   (unless (>= (start k) e)
                      (collect k))))
            (cond ((and *minimize-results* (= 1 (length children))
                        (awhen (first children)
-                         (and (eql (start it) (or outer-match-start start-of-match))
-                              (eql (end it) (or outer-match-end end-of-match)))))
+                         (and (eql (start it) outer-start)
+                              (eql (end it) outer-end))))
                   (inner-match (first children)))
                  (T (let ((n (result-node
                               name
-                              (or outer-match-start s)
-                              (or outer-match-end e)
-                              match groups children)))
+                              outer-start
+                              outer-end
+                              target
+                              groups children)))
                       (inner-match n)))))))
       results)))
 
@@ -206,27 +210,19 @@
             ((and not-escaped? (eql c close-char))
              (decf cnt)
              (when (zerop cnt) ;; found our last matching char
-               (let* ((match-end (+ 1 pos))
-                      (match (make-displaced-array
-                              cl-ppcre::*string* start match-end)))
+               (let* ((match-end (+ 1 pos)))
                  (acond
 		   ;; dont have a body to match so, just push our match
                    ((null body-regex)
-		    (let ((n (result-node name start pos match)))
+		    (let ((n (result-node name start match-end)))
 		      (inner-match n))
                     (return match-end))
 		   ;; we have a body to match, and it matched so set
 		   ;; the information on our node and assume kids are
 		   ;; in place
-                   ((handler-bind
-			((inner-match
-                           (lambda (c &aux (me (data c)))
-                             (setf (start me) start
-                                   (end me) match-end
-                                   (full-match me) match))))
-		      (%collect-groups-to-tree
-		       name body-regex cl-ppcre::*string* (+ 1 start) pos
-                       start match-end))
+                   ((%collect-groups-to-tree
+                     name body-regex cl-ppcre::*string* (+ 1 start) pos
+                     start match-end)
                     (return match-end))
 		   ;; our body didnt match so we must fail
                    (T fail))))))
@@ -372,13 +368,16 @@
        (return (list* (name tree) (full-match tree) ns))))))
 
 (defun regex-recursive-groups (regex target
-			       &optional (dispatchers *dispatchers*)
+			       &key (dispatchers *dispatchers*)
+                               tree-results?
 			       &aux (*dispatchers* dispatchers) res)
   "run a recursive regular expression and gather all the results for
    each of them into a tree"
   (let ((scanner (create-recursive-scanner regex dispatchers)))
     (with-child-pusher (res)
       (%collect-groups-to-tree :root scanner target))
-    (values (first res) (treeify-regex-results (first res)))))
+    (if tree-results?
+        (treeify-regex-results (first res))
+        (first res))))
 
 
