@@ -81,6 +81,12 @@ I'm obviously not the first person to think this idea would be neat
   * [A blog post discussing embedding a PERL regexp inside its own definition](http://www.catonmat.net/blog/recursive-regular-expressions/)
   * [Perl recursive patterns](http://search.cpan.org/~rgarcia/perl/pod/perl595delta.pod#Regular_expressions)
 
+## Authors
+ * [Acceleration.net](http://www.acceleration.net/) [Donate](http://www.acceleration.net/programming/donate-to-acceleration-net/)
+  * [Russ Tyndall](http://russ.unwashedmeme.com/blog)
+  * [Nathan Bird](http://the.unwashedmeme.com/blog)
+  * [Ryan Davis](http://ryepup.unwashedmeme.com/blog)
+
 ```
 ;; Copyright (c) 2011 Russ Tyndall, 
 ;;   Acceleration.net http://www.acceleration.net
