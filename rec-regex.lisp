@@ -9,7 +9,9 @@
 	   :add-matched-pair-matcher
 	   :clear-dispatchers
            :read-rex-file-to-dispatchers
-           :*dispatchers*))
+           :make-default-dispatch-table
+           :*dispatchers*
+           :*case-insensitive*))
 
 (in-package :rec-regex)
 (cl-interpol:enable-interpol-syntax)
@@ -21,6 +23,7 @@
 (defvar *trace-parse* nil)
 (defvar *trace-depth* 0)
 (defvar *minimize-results* T)
+(defvar *case-insensitive* nil)
 
 (defmacro tracer (&rest args)
   ;; theoretically a touch faster than just using %tracer
@@ -355,7 +358,9 @@
 				 (collect (mutate-tree item))))))))
          ;; mutate the regex to contain our matcher functions
          ;; then compile it
-         (cl-ppcre:create-scanner (mutate-tree p-tree)))))))
+         (cl-ppcre:create-scanner
+          (mutate-tree p-tree)
+          :case-insensitive-mode *case-insensitive*))))))
 
 (defun treeify-regex-results (tree)
   "Make a lisp tree of the results
