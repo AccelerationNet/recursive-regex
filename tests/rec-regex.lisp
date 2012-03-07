@@ -111,3 +111,30 @@ of
 multiline\"" "data") row1)
     (assert-true res)))
 
+
+
+
+;; Tests showing failing cases
+(deftest failing.test1
+    (flet ((names (inp)
+             (let* ((n (regex-recursive-groups #?r"(\s|^)(?<state>)(\s|$)" inp ))
+                   (kids (when n (kids n))))
+             (mapcar #'name kids))))
+      (let ((*case-insensitive* t)
+            (*dispatchers* *dispatchers*)
+            (regex #?r"(?:\s|^)(?<PA>)(?:\s|$)"))
+        (add-named-regex-matcher
+         "PA" "Pennsylvania|Penn|PA")
+        (add-named-regex-matcher
+         "FL" "FL|Flor|Florida")
+        (add-named-regex-matcher
+         "state" #?r"(?<PA>)|(?<FL>)")
+        (assert-equal '(:FL) (names "Union Park FL"))
+        (assert-equal '(:PA) (names "Floridationville PA penntuckey"))
+        (assert-equal '(:PA) (names "PA"))
+        (assert-equal '(:PA) (names "PENN"))
+        (assert-equal '(:PA) (names "pennSylvania"))
+        (assert-equal '(:FL) (names "fl"))
+        (assert-equal '(:FL) (names "florida"))
+        (assert-equal '(:FL) (names "FLOR"))
+        )))
