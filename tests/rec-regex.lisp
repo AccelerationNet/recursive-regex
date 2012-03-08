@@ -115,26 +115,35 @@ multiline\"" "data") row1)
 
 
 ;; Tests showing failing cases
-(deftest failing.test1
-    (flet ((names (inp)
-             (let* ((n (regex-recursive-groups #?r"(\s|^)(?<state>)(\s|$)" inp ))
-                   (kids (when n (kids n))))
-             (mapcar #'name kids))))
-      (let ((*case-insensitive* t)
-            (*dispatchers* *dispatchers*)
-            (regex #?r"(?:\s|^)(?<PA>)(?:\s|$)"))
+(deftest failing.test1.showing-terminator
+    (let ((*case-insensitive* t)
+          (*dispatchers* *dispatchers*)
+          ;;(rec-regex::*trace-parse* t)
+          )
+      (flet ((names (inp)
+               (let* ((n (regex-recursive-groups #?r"(?<state>)" inp ))
+                      (kids (when n (kids n))))
+                 (cond (kids (mapcar #'name kids))
+                       (n (list (name n)))))))
         (add-named-regex-matcher
-         "PA" "Pennsylvania|Penn|PA")
+         "PA" #?r"(?:\s|^)(Pennsylvania|Penn|PA)(?:\s|$)")
         (add-named-regex-matcher
-         "FL" "FL|Flor|Florida")
+         "FL" #?r"(?:\s|^)(FL|Flor|Florida)(?:\s|$)")
         (add-named-regex-matcher
+         ;; It would be nice to include the terminators in the state rule,
+         ;; but that fails
          "state" #?r"(?<PA>)|(?<FL>)")
-        (assert-equal '(:FL) (names "Union Park FL"))
-        (assert-equal '(:PA) (names "Floridationville PA penntuckey"))
+
+        (assert-equal '(:FL) (names "florida"))
+        (assert-false (names "asdflorida"))
+        (assert-equal '(:FL) (names "FLOR"))
+        (assert-equal '(:FL) (names "fl"))
+
         (assert-equal '(:PA) (names "PA"))
         (assert-equal '(:PA) (names "PENN"))
         (assert-equal '(:PA) (names "pennSylvania"))
-        (assert-equal '(:FL) (names "fl"))
-        (assert-equal '(:FL) (names "florida"))
-        (assert-equal '(:FL) (names "FLOR"))
+
+        (assert-equal '(:FL) (names "Union Park FL"))
+        (assert-equal '(:PA) (names "Floridationville PA penntuckey"))
+
         )))

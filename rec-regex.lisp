@@ -32,8 +32,7 @@
 (defun %tracer ( label name pos match-end &key data level )
   (when (and *trace-parse*
              (or (null level)
-                 (and (numberp *trace-parse*)
-                      (numberp level)
+                 (and (numberp *trace-parse*) (numberp level)
                       (>= *trace-parse* level))))
     (format *trace-output* "~&~vT~A ~A (~A-~A) ~S ~{~s~^ ~}"
             *trace-depth*
@@ -42,15 +41,24 @@
               (subseq cl-ppcre::*string* pos match-end))
             (alexandria:ensure-list data))))
 
+(defmacro trace-log (msg &rest args)
+  `(when *trace-parse* (%trace-log ,msg ,@args)))
+
+(defun %trace-log (msg &rest args)
+  (when *trace-parse*
+    (format *trace-output* "~&~vT~?"
+            *trace-depth*
+            msg args)))
+
 (defmacro def-traced-matcher-lambda ((pos-name name &rest rest-tracing) &body body)
   (alexandria:with-unique-names (res)
     `(lambda (,pos-name)
       (let ((*trace-depth* *trace-depth*)
             (*print-pretty* *trace-parse*))
         (incf *trace-depth* 2)
-        (tracer "Before" ',name ,pos-name nil :data (list ,@rest-tracing) :level 1)
+        (tracer "Before" ,name ,pos-name nil :data (list ,@rest-tracing))
         (let* ((,res (multiple-value-list (progn ,@body))))
-          (tracer "After" ',name ,pos-name (first ,res) :data (list ,@rest-tracing))
+          (tracer "After" ,name ,pos-name (first ,res) :data (list ,@rest-tracing))
           (apply #'values ,res))))))
 
 (define-condition inner-match ()
@@ -95,17 +103,18 @@
   "pushes child-matches into the place and continues-matching
    discards results that have been backtracked passed"
   `(handler-bind
-      ((inner-match
-	(lambda (c)
-	  (let ((new-kid (data c)))
-	    ;; handle backtracking
-	    ;; (remove matches that end after our start)
-	    (iter (for n = (first ,place))
-		  (while (and n (< (start new-kid) (end n))))
-		  (pop ,place))
-	    (push new-kid ,place)
-	    (continue-matching c)))))
-    ,@body))
+       ((inner-match
+          (lambda (c)
+            (let ((new-kid (data c)))
+              ;; handle backtracking
+              ;; (remove matches that end after our start)
+              (iter (for n = (first ,place))
+                (while (and n (< (start new-kid) (end n))))
+                (trace-log "backtracker throwing out ~A" n)
+                (pop ,place))
+              (push new-kid ,place)
+              (continue-matching c)))))
+     ,@body))
 
 (defun %collect-groups-to-tree (name scanner target
                                      &optional (start 0) (end (length target))
@@ -119,6 +128,7 @@
 	    (with-child-pusher (children)
               (cl-ppcre:scan scanner target :start start :end end))))
 	 (success? (first results)))
+    ;(break "~A ~A " scanner results)
     (when success?
       (iter
 	(with (s e group-starts group-ends) = results)
@@ -158,8 +168,11 @@
            (setf it (devoid it))
            (when it
              `(:SEQUENCE :START-ANCHOR ,it
-               ;;:END-ANCHOR
-               ))))
+                         ;; not sure if we care that it matches the whole body
+                         ;; unless it needs to (eg, the next character in the parent
+                         ;; expression says you should have matched the whole thing)
+                         ; :END-ANCHOR
+                         ))))
     (typecase regex
       (function regex) ;; presumably already did what was required :/
       (string
