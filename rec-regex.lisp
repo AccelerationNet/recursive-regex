@@ -20,7 +20,7 @@
 (defparameter *dispatchers* nil)
 (defvar *body-regex* nil )
 (defvar *uncompiled-br*  nil)
-(defvar *trace-parse* nil)
+(defparameter *trace-parse* nil)
 (defvar *trace-depth* 0)
 (defvar *minimize-results* T)
 (defvar *case-insensitive* nil)
@@ -119,51 +119,35 @@
               (continue-matching c)))))
      ,@body))
 
-(defun %collect-groups-to-tree (name scanner target
-                                     &optional (start 0) (end (length target))
-                                     outer-match-start outer-match-end
-                                     &aux (children (list)))
-  (let* ( ;; TODO: Bind these to the appropriate length
-	 (cl-ppcre::*reg-starts* #(nil nil nil nil nil nil))
-	 (cl-ppcre::*reg-ends* #(nil nil nil nil nil nil))
-	 (results
-	  (multiple-value-list
-	    (with-child-pusher (children)
-              (cl-ppcre:scan scanner target :start start :end end))))
-	 (success? (first results)))
-    (format T "~% ~A ~A ~A ~A" name start end results)
-    ;(break "~A ~A " scanner results)
-    (when success?
-      (iter
-	(with (s e group-starts group-ends) = results)
-	(for start in-vector group-starts)
-	(for end in-vector group-ends)
-	(when (and start end)
-	  (collect (make-displaced-array target start end) into groups))
-	(finally
-         ;; remove backtracked nodes, if any of the children
-         ;; start their match after our full match they, must
-         ;; have been backtracked passed
-         (let ((outer-start (or outer-match-start s))
-               (outer-end (or outer-match-end e)))
-           (setf children
-                 (iter
-                   (for k in (nreverse children))
-                   (unless (>= (start k) e)
-                     (collect k))))
-           (cond ((and *minimize-results* (= 1 (length children))
-                       (awhen (first children)
-                         (and (eql (start it) outer-start)
-                              (eql (end it) outer-end))))
-                  (inner-match (first children)))
-                 (T (let ((n (result-node
-                              name
-                              outer-start
-                              outer-end
-                              target
-                              groups children)))
-                      (inner-match n)))))))
-      results)))
+(defmethod create-psudo-matcher-aux (regex-tree next-fn)
+  (multiple-value-bind (regex reg-num starts-with reg-names)
+      (cl-ppcre::convert regex-tree)
+    (declare (ignore reg-num starts-with reg-names))
+    (let ((regex (cl-ppcre::gather-strings (cl-ppcre::flatten regex)))
+          (cl-ppcre::*rep-num* 0)
+          (cl-ppcre::*zero-length-num* 0))
+      (cl-ppcre::compute-min-rest regex 0)
+      ;; set the OFFSET slots of the STR objects
+      (cl-ppcre::compute-offsets regex 0)
+      (cl-ppcre::create-matcher-aux regex next-fn))))
+
+(defun %next-scanner-fn (name regex pos next-fn
+                              &aux (children (list)))
+  ;;
+
+  (let* ((results
+           (with-child-pusher (children)
+             (multiple-value-list
+              (funcall
+               (create-recursive-scanner regex :next-fn next-fn) cl-ppcre::*string* pos cl-ppcre::*end-pos*))))
+         (start (first results))
+         (end (second results)))
+    ;(break "~A~%~A ~A~%~A~%~A" regex start end children next-fn)
+    ;; (format T "~% COL ~A ~A ~A ~A" name start end results)
+    (when (and start end)
+      (let ((node (result-node name start end cl-ppcre::*string* nil children)))
+        (inner-match node)
+        (apply #'values results)))))
 
 (defun devoid (regex) (if (eql :void regex) nil regex))
 
@@ -172,7 +156,9 @@
   (flet ((wrap (it)
            (setf it (devoid it))
            (when it
-             `(:sequence :start-anchor ,it))))
+             ;; `(:sequence :start-anchor ,it)
+             it
+             )))
     (typecase regex
       (function regex) ;; presumably already did what was required :/
       (string
@@ -185,14 +171,12 @@
 				  &optional (escape nil))
   "Will create a regex filter that can match arbitrary pairs of
    matched characters such as (start (other () some) end)"
-  (lambda (body-regex next-fn &aux (br ))
+  (lambda (body-regex &aux (br ))
     (tracer "in matched pair creator" :matched nil nil :data (list body-regex) :level 2)
-    (setf br (convert-to-full-match body-regex))
+    (setf br (%convert body-regex))
     (tracer "in matched pair creator AFTER" :matched nil nil :data (list br) :level 2)
     (setf body-regex (when br
-                       (create-recursive-scanner
-			`(:NAMED-REGISTER "body" ,br)
-                        :next-fn next-fn)))
+			`(:NAMED-REGISTER "body" ,br)))
     (def-traced-matcher-lambda (pos next-fn name)
       (tracer "in matched pair" :matched pos nil :level 2)
       (let ((*body-regex* nil)
@@ -237,9 +221,7 @@
 		   ;; we have a body to match, and it matched so set
 		   ;; the information on our node and assume kids are
 		   ;; in place
-                   ((%collect-groups-to-tree
-                     name body-regex cl-ppcre::*string* (+ 1 start) pos
-                     start match-end)
+                   ((%next-scanner-fn name body-regex (+ 1 start) next-fn)
                     (return match-end))
 		   ;; our body didnt match so we must fail
                    (T fail))))))
@@ -248,38 +230,25 @@
 
 (defun make-named-regex-matcher (name named-regex)
   "Handles matching by delegating to another named regular expression"
-  (lambda (body-regex next-fn
-      &aux (br (convert-to-full-match body-regex))
-      (nr (convert-to-full-match named-regex)))
+  (lambda (body-regex &aux (br (%convert body-regex))
+      (nr (%convert named-regex)))
 
-    (setf body-regex (when br (create-recursive-scanner br :next-fn next-fn)))
-    (setf named-regex (create-recursive-scanner nr :next-fn next-fn))
+    ;; (setf body-regex (when br (create-recursive-scanner br )))
+    ;;(setf named-regex (create-recursive-scanner nr ))
     (setf name (symbol-munger:english->keyword name))
     (def-traced-matcher-lambda (pos next-fn name (or nr br))
       (let ((*body-regex* body-regex)
             (*uncompiled-br* br))
-        (let* ((results (%collect-groups-to-tree
-                         name
-                         named-regex cl-ppcre::*string*
-                         pos cl-ppcre::*end-pos*)))
-          (when results
-            (second results)))))))
+        (%next-scanner-fn name nr pos next-fn)))))
 
 (defun make-body-matcher ( &optional (name :body))
   "Handles matching the body of a named regular expression"
-  (lambda (default-body-regex next-fn
-      &aux (br (convert-to-full-match default-body-regex)))
+  (lambda (default-body-regex &aux (br (%convert default-body-regex)))
     ;; handle default body regex (if one is not provided)
-    (setf default-body-regex (create-recursive-scanner br :next-fn next-fn))
     (def-traced-matcher-lambda (pos next-fn name)
-      (awhen (or *body-regex* default-body-regex)
-        (let* ((*uncompiled-br* (or *uncompiled-br* br))
-               (results
-                 (%collect-groups-to-tree
-                  name it cl-ppcre::*string* pos cl-ppcre::*end-pos*))
-               (end (second results)))
-          (funcall next-fn end)
-          end)))))
+      (awhen (or *body-regex* br)
+        (let* ((*uncompiled-br* (or *uncompiled-br* br)))
+          (%next-scanner-fn name it pos next-fn))))))
 
 (defun clear-dispatchers ()
   "removes all the dispatchers"
@@ -339,10 +308,10 @@
                          (when (and *minimize-results* (eql :body (name n)))
                            (setf (name n) (symbol-munger:english->keyword name)))
                          )))
-        (funcall (funcall fn body-regex next-fn) pos next-fn)))))
+        (funcall (funcall fn body-regex) pos next-fn)))))
 
 (defun create-recursive-scanner
-    (regex &key next-fn (function-table *dispatchers*)
+    (regex &key (function-table *dispatchers*) next-fn
      &aux (cl-ppcre:*allow-named-registers* T)
      (*dispatchers* function-table))
   "Allows named registers to refer to functions that should be in
@@ -352,7 +321,7 @@
     (string
      (create-recursive-scanner (cl-ppcre:parse-string regex)
       :function-table function-table
-      :next-fn next-fn))
+      ))
     (list regex
      (let* ((p-tree regex))
        (labels ((mutate-tree (tree)
@@ -377,8 +346,8 @@
          ;; then compile it
          (cl-ppcre:create-scanner
           (mutate-tree p-tree)
-          :next-fn (or next-fn #'identity)
-          :case-insensitive-mode *case-insensitive*))))))
+          :case-insensitive-mode *case-insensitive*
+          :next-fn next-fn))))))
 
 (defun treeify-regex-results (tree)
   "Make a lisp tree of the results
@@ -393,13 +362,11 @@
 (defun regex-recursive-groups (regex target
 			       &key (dispatchers *dispatchers*)
                                tree-results?
-                               next-fn
 			       &aux (*dispatchers* dispatchers) res)
   "run a recursive regular expression and gather all the results for
    each of them into a tree"
-  (let ((scanner (create-recursive-scanner regex :next-fn next-fn :function-table dispatchers)))
-    (with-child-pusher (res)
-      (%collect-groups-to-tree :root scanner target))
+  (let ((scanner (create-recursive-scanner regex  :function-table dispatchers)))
+    (with-child-pusher (res) (cl-ppcre:scan scanner target))
     (if tree-results?
         (treeify-regex-results (first res))
         (first res))))

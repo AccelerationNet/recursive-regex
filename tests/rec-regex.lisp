@@ -136,6 +136,9 @@ multiline\"" "data") row1)
 
         (assert-equal '(:FL) (names "florida"))
         (assert-false (names "asdflorida"))
+        (assert-false (names "floridaaaa"))
+        (assert-false (names "asdfloridaaaa"))
+        (assert-false (names "asdf florida aaa"))
         (assert-equal '(:FL) (names "FLOR"))
         (assert-equal '(:FL) (names "fl"))
 

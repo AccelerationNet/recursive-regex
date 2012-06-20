@@ -2,6 +2,11 @@
 (cl-interpol:enable-interpol-syntax)
 
 
+(defun do-log (msg &rest args)
+  (when t (format T "~%~?" msg args)))
+(defun cl-ppcre::do-log (msg &rest args)
+  (when nil (format T "~%~?" msg args)))
+
 (defun test-create ()
   (let ((*case-insensitive* t)
         (*dispatchers* nil)
@@ -12,6 +17,7 @@
      "PA" #?r"(Pennsylvania|Penn|PA)")
     (regex-recursive-groups #?r"(?<PA>)" "- Penn -" )
     ))
+
 (defun test-it-2 ()
   (let ((*case-insensitive* t)
         (*dispatchers* *dispatchers*)
@@ -20,8 +26,14 @@
     (flet ((names (inp)
              (let* ((n (regex-recursive-groups #?r"(?<state>)" inp ))
                     (kids (when n (kids n))))
-               (cond (kids (mapcar #'name kids))
-                     (n (list (name n)))))))
+               ;;(do-log "~%~S~%" (treeify-regex-results n))
+               (values
+                (cond
+                  ((adwutils::only-one? kids)
+                   (name (first kids)))
+                  (kids (mapcar #'name kids))
+                  (n (name n)))
+                kids))))
       (add-named-regex-matcher
        "PA" #?r"(Pennsylvania|Penn|PA)")
       (add-named-regex-matcher
@@ -30,20 +42,25 @@
        ;; It would be nice to include the terminators in the state rule,
        ;; but that fails
        "state" #?r"(?:\s|^)(?:(?<FL>)|(?<PA>))(?:\s|$)")
-
-      (list
-       ;;(names "florida")
-       (names "asdflorida")
-       ;; (names "FLOR")
-       ;; (names "fl")
-       ;; (names "PA")
-       ;; (names "PENN")
-       ;; (names "pennSylvania")
-
-       ;; (names "Union Park FL")
-       ;; (names "Floridationville PA penntuckey")
-
-       ))))
+      (macrolet ((l (exp s)
+                   `(multiple-value-bind (res kids)
+                     (names ,s)
+                     (if (eql ,exp res)
+                         (do-log "PASS ~A ~A ~A ~A" ,exp res ,s kids)
+                         (do-log "FAIL ~A ~A ~A ~A" ,exp res ,s kids)))))
+        (l :fl "florida")
+        (l nil "asdflorida")
+        (l nil "floridaaaa")
+        (l nil "asdffloridaaaa")
+        (l :fl "asd florida aaa")
+        (l :fl "FLOR")
+        (l :fl "fl")
+        (l :pa "PA")
+        (l :pa "PENN")
+        (l :pa "pennSylvania")
+        (l :fl "Union Park FL")
+        (l :pa "Floridationville PA penntuckey")
+        ))))
 
 (defun test-it ()
   (let ((scanner (cl-ppcre:create-scanner
@@ -63,64 +80,60 @@
       )))
 
 #|
-ALT 0 #<ALTERNATION {10068423D3}>: #<FUNCTION CL-PPCRE::WHITESPACEP> NIL
-ALT 0 #<ALTERNATION {1006842793}>: Pennsylvania NIL
-ALT 0 #<ALTERNATION {1006842793}>: Penn NIL
-ALT 0 #<ALTERNATION {1006842793}>: PA NIL
-ALT 0 #<ALTERNATION {1006842BE3}>: #<REGISTER {10068427D3}> NIL
-ALT 2 #<ALTERNATION {1006842CE3}>: #<FUNCTION CL-PPCRE::WHITESPACEP> NIL
-ALT 2 #<ALTERNATION {1006842CE3}>: #<ANCHOR {1006842C93}> NIL
-ALT 0 #<ALTERNATION {1006842B53}>: FL NIL
-ALT 4 #<ALTERNATION {1006842CE3}>: #<FUNCTION CL-PPCRE::WHITESPACEP> NIL
-ALT 4 #<ALTERNATION {1006842CE3}>: #<ANCHOR {1006842C93}> NIL
-ALT 0 #<ALTERNATION {1006842B53}>: Flor NIL
-ALT 7 #<ALTERNATION {1006842CE3}>: #<FUNCTION CL-PPCRE::WHITESPACEP> NIL
-ALT 7 #<ALTERNATION {1006842CE3}>: #<ANCHOR {1006842C93}> NIL
-ALT 0 #<ALTERNATION {1006842B53}>: Florida NIL
-ALT 0 #<ALTERNATION {1006842BE3}>: #<REGISTER {1006842B93}> NIL
-ALT 0 #<ALTERNATION {10068423D3}>: #<ANCHOR {1006842383}> NIL
-ALT 1 #<ALTERNATION {10068423D3}>: #<FUNCTION CL-PPCRE::WHITESPACEP> NIL
-ALT 1 #<ALTERNATION {10068423D3}>: #<ANCHOR {1006842383}> NIL
-ALT 2 #<ALTERNATION {10068423D3}>: #<FUNCTION CL-PPCRE::WHITESPACEP> NIL
-ALT 2 #<ALTERNATION {10068423D3}>: #<ANCHOR {1006842383}> NIL
-ALT 3 #<ALTERNATION {10068423D3}>: #<FUNCTION CL-PPCRE::WHITESPACEP> NIL
-ALT 3 #<ALTERNATION {10068423D3}>: #<ANCHOR {1006842383}> NIL
-ALT 4 #<ALTERNATION {10068423D3}>: #<FUNCTION CL-PPCRE::WHITESPACEP> NIL
-ALT 4 #<ALTERNATION {10068423D3}>: #<ANCHOR {1006842383}> NIL
-ALT 5 #<ALTERNATION {10068423D3}>: #<FUNCTION CL-PPCRE::WHITESPACEP> NIL
-ALT 5 #<ALTERNATION {10068423D3}>: #<ANCHOR {1006842383}> NIL
-ALT 6 #<ALTERNATION {10068423D3}>: #<FUNCTION CL-PPCRE::WHITESPACEP> NIL
-ALT 6 #<ALTERNATION {10068423D3}>: #<ANCHOR {1006842383}> NIL
-ALT 7 #<ALTERNATION {10068423D3}>: #<FUNCTION CL-PPCRE::WHITESPACEP> NIL
-ALT 7 #<ALTERNATION {10068423D3}>: #<ANCHOR {1006842383}> NIL
-ALT 8 #<ALTERNATION {10068423D3}>: #<FUNCTION CL-PPCRE::WHITESPACEP> NIL
-ALT 8 #<ALTERNATION {10068423D3}>: #<ANCHOR {1006842383}> NIL
-ALT 9 #<ALTERNATION {10068423D3}>: #<FUNCTION CL-PPCRE::WHITESPACEP> NIL
-ALT 9 #<ALTERNATION {10068423D3}>: #<ANCHOR {1006842383}> NIL
-ALT 10 #<ALTERNATION {10068423D3}>: #<FUNCTION CL-PPCRE::WHITESPACEP> NIL
-ALT 10 #<ALTERNATION {10068423D3}>: #<ANCHOR {1006842383}> NIL
-ALT 11 #<ALTERNATION {10068423D3}>: #<FUNCTION CL-PPCRE::WHITESPACEP> NIL
-ALT 11 #<ALTERNATION {10068423D3}>: #<ANCHOR {1006842383}> NIL
-ALT 12 #<ALTERNATION {10068423D3}>: #<FUNCTION CL-PPCRE::WHITESPACEP> NIL
-ALT 12 #<ALTERNATION {10068423D3}>: #<ANCHOR {1006842383}> NIL
-ALT 13 #<ALTERNATION {10068423D3}>: #<FUNCTION CL-PPCRE::WHITESPACEP> NIL
-ALT 13 #<ALTERNATION {10068423D3}>: #<ANCHOR {1006842383}> NIL
-ALT 14 #<ALTERNATION {10068423D3}>: #<FUNCTION CL-PPCRE::WHITESPACEP> NIL
-ALT 14 #<ALTERNATION {10068423D3}>: #<ANCHOR {1006842383}> NIL
-ALT 15 #<ALTERNATION {10068423D3}>: #<FUNCTION CL-PPCRE::WHITESPACEP> NIL
-ALT 15 #<ALTERNATION {10068423D3}>: #<ANCHOR {1006842383}> NIL
-ALT 17 #<ALTERNATION {1006842793}>: Pennsylvania NIL
-ALT 17 #<ALTERNATION {1006842793}>: Penn NIL
-ALT 19 #<ALTERNATION {1006842CE3}>: #<FUNCTION CL-PPCRE::WHITESPACEP> 20
-ALT 17 #<ALTERNATION {1006842793}>: PA 20
-ALT 17 #<ALTERNATION {1006842BE3}>: #<REGISTER {10068427D3}> 20
-ALT 16 #<ALTERNATION {10068423D3}>: #<FUNCTION CL-PPCRE::WHITESPACEP> 20
-
 
 |#
 
+
+
 (progn
   cl-ppcre::(progn
+              (defmethod create-matcher-aux ((filter filter) next-fn)
+                (declare #.*standard-optimize-settings*)
+                (let ((fn (fn filter)))
+                  (lambda (start-pos)
+                    (do-log "Filter: ~A ~A" start-pos next-fn)
+                    (prog1 (funcall fn start-pos next-fn)
+                      (do-log "Done Filter: ~A ~A" start-pos next-fn)))))
+
+              (defmethod create-matcher-aux ((register register) next-fn)
+                (declare #.*standard-optimize-settings*)
+                ;; the position of this REGISTER within the whole regex; we start to
+                ;; count at 0
+                (let ((num (num register)))
+                  (declare (fixnum num))
+                  ;; STORE-END-OF-REG is a thin wrapper around NEXT-FN which will
+                  ;; update the corresponding values of *REGS-START* and *REGS-END*
+                  ;; after the inner matcher has succeeded
+                  (flet ((store-end-of-reg (start-pos)
+                           (declare (fixnum start-pos)
+                                    (function next-fn))
+                           (setf (svref *reg-starts* num) (svref *regs-maybe-start* num)
+                                 (svref *reg-ends* num) start-pos)
+                           (funcall next-fn start-pos)))
+                    ;; the inner matcher is a closure corresponding to the regex
+                    ;; wrapped by this REGISTER
+                    (let ((inner-matcher (create-matcher-aux (regex register)
+                                                             #'store-end-of-reg)))
+                      (declare (function inner-matcher))
+                      ;; here comes the actual closure for REGISTER
+                      (lambda (start-pos)
+                        (declare (fixnum start-pos))
+                        ;; remember the old values of *REGS-START* and friends in
+                        ;; case we cannot match
+                        (let ((old-*reg-starts* (svref *reg-starts* num))
+                              (old-*regs-maybe-start* (svref *regs-maybe-start* num))
+                              (old-*reg-ends* (svref *reg-ends* num)))
+                          ;; we cannot use *REGS-START* here because Perl allows
+                          ;; regular expressions like /(a|\1x)*/
+                          (setf (svref *regs-maybe-start* num) start-pos)
+                          (let ((next-pos (funcall inner-matcher start-pos)))
+                            (unless next-pos
+                              ;; restore old values on failure
+                              (setf (svref *reg-starts* num) old-*reg-starts*
+                                    (svref *regs-maybe-start* num) old-*regs-maybe-start*
+                                    (svref *reg-ends* num) old-*reg-ends*))
+                            next-pos)))))))
+
               (defmethod create-matcher-aux ((alternation alternation) next-fn)
                 (declare #.*standard-optimize-settings*)
                 ;; first create closures for all alternations of ALTERNATION
@@ -134,15 +147,19 @@ ALT 16 #<ALTERNATION {10068423D3}>: #<FUNCTION CL-PPCRE::WHITESPACEP> 20
                     (loop for matcher in all-matchers
                           for choice in (choices alternation)
                           for res = (funcall (the function matcher) start-pos)
-                          do (format T "~%ALT ~A ~A: ~A ~A"
-                                     (list start-pos *start-pos* *real-start-pos*)
-                                     alternation
-                                     (typecase choice
-                                       (str (str choice))
-                                       (char-class (test-function choice))
-                                       (register
-                                        #?"Reg:${(name choice)}")
-                                       (t choice)) res )
+                          do (do-log "ALT ~A ~A: ~A ~A"
+                               (list start-pos *start-pos* *real-start-pos*)
+                               alternation
+                               (typecase choice
+                                 (str (str choice))
+                                 (char-class (test-function choice))
+                                 (anchor (if (cl-ppcre::startp choice)
+                                             " ^ "
+                                             " $ " ))
+                                 (register
+                                  #?"Reg:${(name choice)}")
+                                 (t choice))
+                               res )
                           thereis res))))
               (defmethod create-matcher-aux ((anchor anchor) next-fn)
                 (declare #.*standard-optimize-settings*)
@@ -155,7 +172,7 @@ ALT 16 #<ALTERNATION {10068423D3}>: #<FUNCTION CL-PPCRE::WHITESPACEP> 20
                          ;; *END-POS*
                          (lambda (start-pos)
                            (declare (fixnum start-pos))
-                           (format T "~%ANC nn: ~A ~A"
+                           (do-log "ANC nn: ~A ~A"
                                    (list start-pos (or *real-start-pos* *start-pos*))
                                    (= start-pos (or *real-start-pos* *start-pos*)))
                            (and (= start-pos *end-pos*)
@@ -165,7 +182,7 @@ ALT 16 #<ALTERNATION {10068423D3}>: #<FUNCTION CL-PPCRE::WHITESPACEP> 20
                          ;; *START-POS* or if the last character was #\Newline
                          (lambda (start-pos)
                            (declare (fixnum start-pos))
-                           (format T "~%ANC sm: ~A ~A"
+                           (do-log "ANC sm: ~A ~A"
                                    (list start-pos (or *real-start-pos* *start-pos*))
                                    (= start-pos (or *real-start-pos* *start-pos*)))
                            (let ((*start-pos* (or *real-start-pos* *start-pos*)))
@@ -180,8 +197,8 @@ ALT 16 #<ALTERNATION {10068423D3}>: #<FUNCTION CL-PPCRE::WHITESPACEP> 20
                          ;; check whether we're at *START-POS*
                          (lambda (start-pos)
                            (declare (fixnum start-pos))
-                           (format T "~%ANC s: ~A ~A"
-                                   (list start-pos (or *real-start-pos* *start-pos*))
+                           (do-log "ANC s: ~A ~A"
+                                   (list start-pos *real-start-pos* *start-pos*)
                                    (= start-pos (or *real-start-pos* *start-pos*)))
                            (and (= start-pos (or *real-start-pos* *start-pos*))
                                 (funcall next-fn start-pos))))
@@ -191,7 +208,7 @@ ALT 16 #<ALTERNATION {10068423D3}>: #<FUNCTION CL-PPCRE::WHITESPACEP> 20
                          ;; #\Newline
                          (lambda (start-pos)
                            (declare (fixnum start-pos))
-                           (format T "~%ANC ml: ~A ~A"
+                           (do-log "ANC ml: ~A ~A"
                                    (list start-pos (or *real-start-pos* *start-pos*))
                                    (= start-pos (or *real-start-pos* *start-pos*)))
                            (and (or (= start-pos *end-pos*)
@@ -205,7 +222,7 @@ ALT 16 #<ALTERNATION {10068423D3}>: #<FUNCTION CL-PPCRE::WHITESPACEP> 20
                          ;; #\Newline and there's nothing behind it
                          (lambda (start-pos)
                            (declare (fixnum start-pos))
-                           (format T "~%ANC end: ~A ~A"
+                           (do-log "ANC end: ~A ~A"
                                    (list start-pos (or *real-start-pos* *start-pos*))
                                    (= start-pos (or *real-start-pos* *start-pos*)))
                            (and (or (= start-pos *end-pos*)
